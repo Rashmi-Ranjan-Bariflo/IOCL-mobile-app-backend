@@ -1,20 +1,29 @@
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
 from .serializers import UserSerializer
 
 
+# ==========================================================
+#                      USER LOGIN
+# =========================================================
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+
         email = request.data.get("email")
         password = request.data.get("password")
 
-        if not email or not password:
+        # --------------------------------------------------
+        # Validate input
+        # --------------------------------------------------
+        if email is None or password is None:
             return Response(
                 {
                     "success": False,
@@ -23,10 +32,14 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        email = email.strip().lower()
+        email = str(email).strip().lower()
+        password = str(password)
 
+        # --------------------------------------------------
+        # Find user
+        # --------------------------------------------------
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
             return Response(
                 {
@@ -36,6 +49,9 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # --------------------------------------------------
+        # Check active
+        # --------------------------------------------------
         if not user.is_active:
             return Response(
                 {
@@ -45,6 +61,9 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # --------------------------------------------------
+        # Check password
+        # --------------------------------------------------
         if not user.check_password(password):
             return Response(
                 {
@@ -54,20 +73,55 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # --------------------------------------------------
+        # Generate JWT
+        # --------------------------------------------------
+        refresh = RefreshToken.for_user(user)
+
         return Response(
             {
                 "success": True,
                 "message": "Login successful.",
                 "data": UserSerializer(user).data,
+                "tokens": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                },
             },
             status=status.HTTP_200_OK,
         )
 
 
+# ==========================================================
+#                      USER LOGOUT
+# ==========================================================
 class LogoutView(APIView):
-    permission_classes = [AllowAny]
 
     def post(self, request):
+        refresh_token = request.data.get("refresh")
+
+        if not refresh_token:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Refresh token is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+        except TokenError:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid or expired refresh token.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         return Response(
             {
                 "success": True,
@@ -77,23 +131,17 @@ class LogoutView(APIView):
         )
 
 
+# ==========================================================
+#                      CHANGE PASSWORD
+# ==========================================================
 class ChangePasswordView(APIView):
-    permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get("email")
+        user = request.user
+
         old_password = request.data.get("old_password")
         new_password = request.data.get("new_password")
         confirm_password = request.data.get("confirm_password")
-
-        if not email:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Email is required.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         if not old_password or not new_password or not confirm_password:
             return Response(
@@ -105,19 +153,6 @@ class ChangePasswordView(APIView):
                     ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        email = email.strip().lower()
-
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "success": False,
-                    "message": "User not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
             )
 
         if not user.check_password(old_password):
@@ -133,7 +168,7 @@ class ChangePasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": ("New password and confirm password " "do not match."),
+                    "message": "New password and confirm password do not match.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -151,7 +186,7 @@ class ChangePasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": ("New password must be different " "from old password."),
+                    "message": "New password must be different from old password.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -168,31 +203,13 @@ class ChangePasswordView(APIView):
         )
 
 
+# =========================================================
+#                      USER PROFILE
+# =========================================================
 class UserProfileView(APIView):
-    permission_classes = [AllowAny]
 
     def get(self, request):
-        email = request.query_params.get("email")
-
-        if not email:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Email is required.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            user = User.objects.get(email=email.strip().lower())
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "success": False,
-                    "message": "User not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        user = request.user
 
         return Response(
             {
@@ -203,27 +220,7 @@ class UserProfileView(APIView):
         )
 
     def put(self, request):
-        email = request.data.get("email")
-
-        if not email:
-            return Response(
-                {
-                    "success": False,
-                    "message": "Email is required.",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            user = User.objects.get(email=email.strip().lower())
-        except User.DoesNotExist:
-            return Response(
-                {
-                    "success": False,
-                    "message": "User not found.",
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        user = request.user
 
         serializer = UserSerializer(
             user,

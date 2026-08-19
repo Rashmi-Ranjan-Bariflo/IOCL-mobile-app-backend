@@ -1,5 +1,5 @@
-from django.contrib.auth.hashers import make_password
 from django.db import models
+
 
 class User(models.Model):
     email = models.EmailField(unique=True, db_index=True)
@@ -13,23 +13,11 @@ class User(models.Model):
         db_table = "users"
         ordering = ["-created_at"]
 
-        indexes = [
-            models.Index(
-                fields=["-created_at"],
-                name="user_created_at_idx"
-            ),
-            models.Index(
-                fields=["updated_at"],
-                name="user_updated_at_idx"
-            ),
-        ]
-
     def set_password(self, raw_password):
-        self.password = make_password(raw_password)
+        self.password = raw_password
 
     def check_password(self, raw_password):
-        from django.contrib.auth.hashers import check_password
-        return check_password(raw_password, self.password)
+        return self.password == raw_password
 
     def __str__(self):
         return self.email
