@@ -1,6 +1,4 @@
 from django.db import models
-
-
 class User(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     phone = models.CharField(max_length=15, blank=True, null=True)
@@ -12,6 +10,9 @@ class User(models.Model):
     class Meta:
         db_table = "users"
         ordering = ["-created_at"]
+    @property
+    def is_authenticated(self):
+     return True
 
     def set_password(self, raw_password):
         self.password = raw_password

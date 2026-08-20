@@ -1,12 +1,14 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .authentication import CustomJWTAuthentication
 from .models import User
 from .serializers import UserSerializer
+
 
 
 # ==========================================================
@@ -110,8 +112,10 @@ class LogoutView(APIView):
             )
 
         try:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
+            # token = RefreshToken(refresh_token)
+            # token.blacklist()
+            RefreshToken(refresh_token)
+
 
         except TokenError:
             return Response(
@@ -135,8 +139,10 @@ class LogoutView(APIView):
 #                      CHANGE PASSWORD
 # ==========================================================
 class ChangePasswordView(APIView):
-
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
     def post(self, request):
+      
         user = request.user
 
         old_password = request.data.get("old_password")
