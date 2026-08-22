@@ -40,8 +40,7 @@ class SignupView(APIView):
                 {
                     "success": False,
                     "message": (
-                        "Email, password and confirm password "
-                        "are required."
+                        "Email, password and confirm password " "are required."
                     ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -56,10 +55,7 @@ class SignupView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Password and confirm password "
-                        "do not match."
-                    ),
+                    "message": ("Password and confirm password " "do not match."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -71,9 +67,7 @@ class SignupView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Password must be at least 6 characters."
-                    ),
+                    "message": ("Password must be at least 6 characters."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -101,10 +95,7 @@ class SignupView(APIView):
                 return Response(
                     {
                         "success": False,
-                        "message": (
-                            "Phone number must contain "
-                            "only digits."
-                        ),
+                        "message": ("Phone number must contain " "only digits."),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -114,8 +105,7 @@ class SignupView(APIView):
                     {
                         "success": False,
                         "message": (
-                            "Phone number must be between "
-                            "10 and 15 digits."
+                            "Phone number must be between " "10 and 15 digits."
                         ),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
@@ -171,9 +161,7 @@ class LoginView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Email and password are required."
-                    ),
+                    "message": ("Email and password are required."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -185,9 +173,7 @@ class LoginView(APIView):
         # Find user
         # --------------------------------------------------
         try:
-            user = User.objects.get(
-                email__iexact=email
-            )
+            user = User.objects.get(email__iexact=email)
 
         except User.DoesNotExist:
 
@@ -279,9 +265,7 @@ class LogoutView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Invalid or expired refresh token."
-                    ),
+                    "message": ("Invalid or expired refresh token."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -326,19 +310,14 @@ class ForgotPasswordView(APIView):
         # --------------------------------------------------
         try:
 
-            user = User.objects.get(
-                email__iexact=email
-            )
+            user = User.objects.get(email__iexact=email)
 
         except User.DoesNotExist:
 
             return Response(
                 {
                     "success": True,
-                    "message": (
-                        "If the email is registered, "
-                        "an OTP has been sent."
-                    ),
+                    "message": ("If the email is registered, " "an OTP has been sent."),
                 },
                 status=status.HTTP_200_OK,
             )
@@ -359,9 +338,7 @@ class ForgotPasswordView(APIView):
         # --------------------------------------------------
         # Generate 6 digit OTP
         # --------------------------------------------------
-        otp = str(
-            random.randint(100000, 999999)
-        )
+        otp = str(random.randint(100000, 999999))
 
         # --------------------------------------------------
         # Save OTP
@@ -399,10 +376,7 @@ class ForgotPasswordView(APIView):
         return Response(
             {
                 "success": True,
-                "message": (
-                    "OTP has been sent to your "
-                    "registered email."
-                ),
+                "message": ("OTP has been sent to your " "registered email."),
             },
             status=status.HTTP_200_OK,
         )
@@ -420,9 +394,7 @@ class ResetPasswordView(APIView):
         email = request.data.get("email")
         otp = request.data.get("otp")
         new_password = request.data.get("new_password")
-        confirm_password = request.data.get(
-            "confirm_password"
-        )
+        confirm_password = request.data.get("confirm_password")
 
         # --------------------------------------------------
         # Validate input
@@ -440,8 +412,7 @@ class ResetPasswordView(APIView):
                 {
                     "success": False,
                     "message": (
-                        "Email, OTP, new password and "
-                        "confirm password are required."
+                        "Email, OTP, new password and " "confirm password are required."
                     ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -455,9 +426,7 @@ class ResetPasswordView(APIView):
         # --------------------------------------------------
         try:
 
-            user = User.objects.get(
-                email__iexact=email
-            )
+            user = User.objects.get(email__iexact=email)
 
         except User.DoesNotExist:
 
@@ -511,10 +480,7 @@ class ResetPasswordView(APIView):
         # --------------------------------------------------
         # OTP expiry - 10 minutes
         # --------------------------------------------------
-        otp_expiry = (
-            user.reset_otp_created_at
-            + timedelta(minutes=10)
-        )
+        otp_expiry = user.reset_otp_created_at + timedelta(minutes=10)
 
         if timezone.now() > otp_expiry:
 
@@ -532,10 +498,7 @@ class ResetPasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "OTP has expired. "
-                        "Please request a new OTP."
-                    ),
+                    "message": ("OTP has expired. " "Please request a new OTP."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -548,10 +511,7 @@ class ResetPasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "New password and confirm password "
-                        "do not match."
-                    ),
+                    "message": ("New password and confirm password " "do not match."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -564,10 +524,7 @@ class ResetPasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Password must be at least "
-                        "6 characters."
-                    ),
+                    "message": ("Password must be at least " "6 characters."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -593,9 +550,109 @@ class ResetPasswordView(APIView):
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Password reset successfully."
-                ),
+                "message": ("Password reset successfully."),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==========================================================
+#                    RESEND OTP
+# ==========================================================
+class ResendOTPView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
+        email = request.data.get("email")
+
+        # --------------------------------------------------
+        # Validate email
+        # --------------------------------------------------
+        if not email:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Email is required.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = str(email).strip().lower()
+
+        # --------------------------------------------------
+        # Find user
+        # --------------------------------------------------
+        try:
+            user = User.objects.get(email__iexact=email)
+
+        except User.DoesNotExist:
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "If the email is registered, " "a new OTP has been sent."
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # --------------------------------------------------
+        # Check active
+        # --------------------------------------------------
+        if not user.is_active:
+            return Response(
+                {
+                    "success": False,
+                    "message": "User account is inactive.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # --------------------------------------------------
+        # Generate new OTP
+        # --------------------------------------------------
+        otp = str(random.randint(100000, 999999))
+
+        # --------------------------------------------------
+        # Update OTP
+        # --------------------------------------------------
+        user.reset_otp = otp
+        user.reset_otp_created_at = timezone.now()
+
+        user.save(
+            update_fields=[
+                "reset_otp",
+                "reset_otp_created_at",
+                "updated_at",
+            ]
+        )
+
+        # --------------------------------------------------
+        # Send email
+        # --------------------------------------------------
+        send_mail(
+            subject="Password Reset OTP",
+            message=(
+                f"Hello,\n\n"
+                f"Your new password reset OTP is: {otp}\n\n"
+                f"This OTP is valid for 10 minutes.\n\n"
+                f"If you did not request a password reset, "
+                f"please ignore this email.\n\n"
+                f"Regards,\n"
+                f"Bariflo Labs Technical Team"
+            ),
+            from_email=None,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": ("A new OTP has been sent to your " "registered email."),
             },
             status=status.HTTP_200_OK,
         )
@@ -606,29 +663,19 @@ class ResetPasswordView(APIView):
 # ==========================================================
 class ChangePasswordView(APIView):
 
-    authentication_classes = [
-        CustomJWTAuthentication
-    ]
+    authentication_classes = [CustomJWTAuthentication]
 
-    permission_classes = [
-        IsAuthenticated
-    ]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
 
         user = request.user
 
-        old_password = request.data.get(
-            "old_password"
-        )
+        old_password = request.data.get("old_password")
 
-        new_password = request.data.get(
-            "new_password"
-        )
+        new_password = request.data.get("new_password")
 
-        confirm_password = request.data.get(
-            "confirm_password"
-        )
+        confirm_password = request.data.get("confirm_password")
 
         # --------------------------------------------------
         # Validate input
@@ -667,10 +714,7 @@ class ChangePasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "New password and confirm password "
-                        "do not match."
-                    ),
+                    "message": ("New password and confirm password " "do not match."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -683,10 +727,7 @@ class ChangePasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Password must be at least "
-                        "6 characters."
-                    ),
+                    "message": ("Password must be at least " "6 characters."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -699,14 +740,11 @@ class ChangePasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "New password must be different "
-                        "from old password."
-                    ),
+                    "message": ("New password must be different " "from old password."),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-    
+
         # --------------------------------------------------
         # Update password
         # --------------------------------------------------
@@ -722,9 +760,7 @@ class ChangePasswordView(APIView):
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Password changed successfully."
-                ),
+                "message": ("Password changed successfully."),
             },
             status=status.HTTP_200_OK,
         )
@@ -735,13 +771,9 @@ class ChangePasswordView(APIView):
 # ==========================================================
 class UserProfileView(APIView):
 
-    authentication_classes = [
-        CustomJWTAuthentication
-    ]
+    authentication_classes = [CustomJWTAuthentication]
 
-    permission_classes = [
-        IsAuthenticated
-    ]
+    permission_classes = [IsAuthenticated]
 
     # ------------------------------------------------------
     # GET PROFILE
@@ -771,18 +803,14 @@ class UserProfileView(APIView):
             partial=True,
         )
 
-        serializer.is_valid(
-            raise_exception=True
-        )
+        serializer.is_valid(raise_exception=True)
 
         serializer.save()
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Profile updated successfully."
-                ),
+                "message": ("Profile updated successfully."),
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
