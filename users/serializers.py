@@ -1,9 +1,7 @@
 from rest_framework import serializers
-
 from .models import User
-
-
 class UserSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = User
 
@@ -19,6 +17,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         read_only_fields = [
             "id",
+            "is_active",
             "created_at",
             "updated_at",
         ]
@@ -40,6 +39,7 @@ class UserSerializer(serializers.ModelSerializer):
         return value
 
     def validate_phone(self, value):
+
         if value:
             value = value.strip()
 
@@ -55,13 +55,18 @@ class UserSerializer(serializers.ModelSerializer):
 
         return value
 
+    def validate_password(self, value):
+
+        if len(value) < 6:
+            raise serializers.ValidationError("Password must be at least 6 characters.")
+
+        return value
+
     def create(self, validated_data):
         password = validated_data.pop("password")
-
         user = User(**validated_data)
         user.set_password(password)
         user.save()
-
         return user
 
     def update(self, instance, validated_data):

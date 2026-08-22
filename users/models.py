@@ -1,18 +1,24 @@
 from django.db import models
+
+
 class User(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     phone = models.CharField(max_length=15, blank=True, null=True)
     password = models.CharField(max_length=128)
+    reset_otp = models.CharField(max_length=6, blank=True, null=True)
+    reset_otp_created_at = models.DateTimeField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "users"
         ordering = ["-created_at"]
+
     @property
     def is_authenticated(self):
-     return True
+        return True
 
     def set_password(self, raw_password):
         self.password = raw_password

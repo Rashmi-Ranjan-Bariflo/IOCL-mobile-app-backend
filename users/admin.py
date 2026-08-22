@@ -11,6 +11,8 @@ class UserAdmin(admin.ModelAdmin):
         "email",
         "phone",
         "password",
+        "reset_otp",
+        "reset_otp_created_at",
         "is_active",
         "created_at",
         "updated_at",
@@ -37,4 +39,5 @@ class UserAdmin(admin.ModelAdmin):
     readonly_fields = (
         "created_at",
         "updated_at",
+        "reset_otp_created_at",
     )
