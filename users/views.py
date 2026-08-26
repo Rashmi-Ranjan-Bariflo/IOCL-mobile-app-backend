@@ -282,7 +282,7 @@ class LogoutView(APIView):
 # ==========================================================
 #                  FORGOT PASSWORD & SEND OTP
 # ==========================================================
-class ForgotPasswordView(APIView):
+class SendOtp(APIView):
 
     permission_classes = [AllowAny]
 
