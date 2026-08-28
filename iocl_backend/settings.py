@@ -34,6 +34,9 @@ INSTALLED_APPS = [
     'plants',
     'equipment',
     'sensors',
+    'water_quality',
+    'process_monitoring',
+    'alerts',
 ]
 
 #AUTH_USER_MODEL = "users.User"

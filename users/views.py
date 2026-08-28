@@ -383,9 +383,9 @@ class SendOtp(APIView):
 
 
 # ==========================================================
-#                  RESET PASSWORD & VERIFY OTP
+#                    VERIFY OTP
 # ==========================================================
-class ResetPasswordView(APIView):
+class VerifyOTPView(APIView):
 
     permission_classes = [AllowAny]
 
@@ -393,27 +393,16 @@ class ResetPasswordView(APIView):
 
         email = request.data.get("email")
         otp = request.data.get("otp")
-        new_password = request.data.get("new_password")
-        confirm_password = request.data.get("confirm_password")
 
         # --------------------------------------------------
         # Validate input
         # --------------------------------------------------
-        if not all(
-            [
-                email,
-                otp,
-                new_password,
-                confirm_password,
-            ]
-        ):
+        if not email or not otp:
 
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Email, OTP, new password and " "confirm password are required."
-                    ),
+                    "message": "Email and OTP are required.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -433,7 +422,7 @@ class ResetPasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Invalid reset request.",
+                    "message": "Invalid OTP verification request.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -478,7 +467,7 @@ class ResetPasswordView(APIView):
             )
 
         # --------------------------------------------------
-        # OTP expiry - 10 minutes
+        # Check OTP expiry
         # --------------------------------------------------
         otp_expiry = user.reset_otp_created_at + timedelta(minutes=10)
 
@@ -498,13 +487,131 @@ class ResetPasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": ("OTP has expired. " "Please request a new OTP."),
+                    "message": "OTP has expired. Please request a new OTP.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # --------------------------------------------------
-        # Check password match
+        # OTP is valid
+        # --------------------------------------------------
+        return Response(
+            {
+                "success": True,
+                "message": "OTP verified successfully.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==========================================================
+#                    RESET PASSWORD
+# ==========================================================
+class ResetPasswordView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+
+        email = request.data.get("email")
+        new_password = request.data.get("new_password")
+        confirm_password = request.data.get("confirm_password")
+
+        # --------------------------------------------------
+        # Validate input
+        # --------------------------------------------------
+        if not all(
+            [
+                email,
+                new_password,
+                confirm_password,
+            ]
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Email, new password and " "confirm password are required."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = str(email).strip().lower()
+
+        # --------------------------------------------------
+        # Find user
+        # --------------------------------------------------
+        try:
+
+            user = User.objects.get(email__iexact=email)
+
+        except User.DoesNotExist:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid password reset request.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Check OTP verification
+        # --------------------------------------------------
+        if not user.reset_otp:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "OTP verification is required " "before changing the password."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Check OTP expiry
+        # --------------------------------------------------
+        if not user.reset_otp_created_at:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "OTP verification has expired.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        otp_expiry = user.reset_otp_created_at + timedelta(minutes=10)
+
+        if timezone.now() > otp_expiry:
+
+            user.reset_otp = None
+            user.reset_otp_created_at = None
+
+            user.save(
+                update_fields=[
+                    "reset_otp",
+                    "reset_otp_created_at",
+                    "updated_at",
+                ]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "OTP verification has expired. " "Please request a new OTP."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Check password confirmation
         # --------------------------------------------------
         if new_password != confirm_password:
 
@@ -524,17 +631,34 @@ class ResetPasswordView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": ("Password must be at least " "6 characters."),
+                    "message": "Password must be at least 6 characters.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # --------------------------------------------------
-        # Set new password
+        # Check same password
+        # --------------------------------------------------
+        if user.check_password(new_password):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "New password must be different " "from the old password."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # Change password
         # --------------------------------------------------
         user.set_password(new_password)
 
-        # Clear OTP
+        # --------------------------------------------------
+        # Clear OTP after successful password reset
+        # --------------------------------------------------
         user.reset_otp = None
         user.reset_otp_created_at = None
 
@@ -550,7 +674,7 @@ class ResetPasswordView(APIView):
         return Response(
             {
                 "success": True,
-                "message": ("Password reset successfully."),
+                "message": "Password reset successfully.",
             },
             status=status.HTTP_200_OK,
         )
