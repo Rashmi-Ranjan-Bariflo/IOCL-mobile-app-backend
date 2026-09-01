@@ -10,4 +10,5 @@ urlpatterns = [
     path("water-quality/", include("water_quality.urls")),
     path("process-monitoring/", include("process_monitoring.urls")),
     path("alerts/", include("alerts.urls")),
+    path("treatment-process/", include("treatment_process.urls")),
 ]
