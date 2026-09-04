@@ -1,26 +1,18 @@
 from django.urls import path
 
 from .views import (
-    TreatmentProcessListCreateView,
     TreatmentStageListCreateView,
+    TreatmentProcessListCreateView,
     TreatmentBatchListCreateView,
     TreatmentBatchStartView,
     TreatmentBatchCompleteView,
     TreatmentBatchStopView,
-    TreatmentBatchCurrentStageView,
+    TreatmentBatchCurrentProcessView,
     DosingRecordListCreateView,
     ProcessExecutionLogListCreateView,
 )
 
 urlpatterns = [
-    # ======================================================
-    # TREATMENT PROCESS
-    # ======================================================
-    path(
-        "processes/",
-        TreatmentProcessListCreateView.as_view(),
-        name="treatment-process-list-create",
-    ),
     # ======================================================
     # TREATMENT STAGE
     # ======================================================
@@ -28,6 +20,14 @@ urlpatterns = [
         "stages/",
         TreatmentStageListCreateView.as_view(),
         name="treatment-stage-list-create",
+    ),
+    # ======================================================
+    # TREATMENT PROCESS
+    # ======================================================
+    path(
+        "processes/",
+        TreatmentProcessListCreateView.as_view(),
+        name="treatment-process-list-create",
     ),
     # ======================================================
     # TREATMENT BATCH
@@ -53,9 +53,9 @@ urlpatterns = [
         name="treatment-batch-stop",
     ),
     path(
-        "batches/<int:pk>/current-stage/",
-        TreatmentBatchCurrentStageView.as_view(),
-        name="treatment-batch-current-stage",
+        "batches/<int:pk>/current-process/",
+        TreatmentBatchCurrentProcessView.as_view(),
+        name="treatment-batch-current-process",
     ),
     # ======================================================
     # DOSING RECORD
