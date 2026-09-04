@@ -1,5 +1,5 @@
 from django.db import models
-from plants.models import Plant, PlantStage
+
 from equipment.models import Equipment
 from sensors.models import Sensor
 
@@ -11,14 +11,25 @@ from sensors.models import Sensor
 class ProcessParameter(models.Model):
 
     name = models.CharField(max_length=100, unique=True)
+
     code = models.CharField(max_length=50, unique=True)
+
     unit = models.CharField(max_length=30, blank=True, null=True)
+
     description = models.TextField(blank=True, null=True)
-    min_value = models.DecimalField(max_digits=12, decimal_places=4, blank=True, null=True)
-    max_value = models.DecimalField(max_digits=12, decimal_places=4, blank=True, null=True)
+
+    min_value = models.DecimalField(
+        max_digits=12, decimal_places=4, blank=True, null=True
+    )
+
+    max_value = models.DecimalField(
+        max_digits=12, decimal_places=4, blank=True, null=True
+    )
+
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -47,19 +58,40 @@ class ProcessReading(models.Model):
         ("CRITICAL", "Critical"),
     ]
 
-    parameter = models.ForeignKey(ProcessParameter, on_delete=models.CASCADE, related_name="readings")
-    plant = models.ForeignKey(Plant, on_delete=models.CASCADE, related_name="process_readings")
-    plant_stage = models.ForeignKey(PlantStage,on_delete=models.SET_NULL, null=True,blank=True, related_name="process_readings",)
-    equipment = models.ForeignKey(Equipment,on_delete=models.SET_NULL, null=True,blank=True, related_name="process_readings",)
-    sensor = models.ForeignKey(Sensor,on_delete=models.SET_NULL,null=True, blank=True, related_name="process_readings",)
+    parameter = models.ForeignKey(
+        ProcessParameter, on_delete=models.CASCADE, related_name="readings"
+    )
+
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="process_readings",
+    )
+
+    sensor = models.ForeignKey(
+        Sensor,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="process_readings",
+    )
+
     value = models.DecimalField(max_digits=12, decimal_places=4)
+
     unit = models.CharField(max_length=30)
+
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default="SENSOR")
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="NORMAL")
+
     recorded_at = models.DateTimeField()
+
     remarks = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -68,25 +100,16 @@ class ProcessReading(models.Model):
 
         indexes = [
             models.Index(
-                fields=["plant", "recorded_at"],
-                name="proc_plant_date_idx",
+                fields=["parameter", "recorded_at"], name="proc_param_date_idx"
             ),
             models.Index(
-                fields=["parameter", "recorded_at"],
-                name="proc_param_date_idx",
+                fields=["equipment", "recorded_at"], name="proc_equip_date_idx"
             ),
-            models.Index(
-                fields=["equipment", "recorded_at"],
-                name="proc_equip_date_idx",
-            ),
-            models.Index(
-                fields=["sensor", "recorded_at"],
-                name="proc_sensor_date_idx",
-            ),
+            models.Index(fields=["sensor", "recorded_at"], name="proc_sensor_date_idx"),
         ]
 
     def __str__(self):
-        return f"{self.parameter.name} - " f"{self.value} {self.unit}"
+        return f"{self.parameter.name} - {self.value} {self.unit}"
 
 
 # ==========================================================
@@ -104,13 +127,18 @@ class EquipmentStatus(models.Model):
         ("MAINTENANCE", "Maintenance"),
     ]
 
-    plant = models.ForeignKey(Plant, on_delete=models.CASCADE, related_name="equipment_statuses")
-    plant_stage = models.ForeignKey(PlantStage, on_delete=models.SET_NULL, null=True,blank=True, related_name="equipment_statuses",)
-    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, related_name="status_history")
+    equipment = models.ForeignKey(
+        Equipment, on_delete=models.CASCADE, related_name="status_history"
+    )
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+
     recorded_at = models.DateTimeField()
+
     remarks = models.TextField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -119,14 +147,9 @@ class EquipmentStatus(models.Model):
 
         indexes = [
             models.Index(
-                fields=["equipment", "recorded_at"],
-                name="equip_status_date_idx",
-            ),
-            models.Index(
-                fields=["plant", "recorded_at"],
-                name="plant_status_date_idx",
+                fields=["equipment", "recorded_at"], name="equip_status_date_idx"
             ),
         ]
 
     def __str__(self):
-        return f"{self.equipment} - " f"{self.status}"
+        return f"{self.equipment} - {self.status}"

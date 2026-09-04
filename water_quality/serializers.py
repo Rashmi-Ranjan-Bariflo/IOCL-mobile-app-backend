@@ -35,6 +35,7 @@ class WaterQualityParameterSerializer(serializers.ModelSerializer):
         ]
 
     def validate_name(self, value):
+
         value = value.strip()
 
         if not value:
@@ -43,6 +44,7 @@ class WaterQualityParameterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_code(self, value):
+
         value = value.strip().upper()
 
         if not value:
@@ -70,11 +72,20 @@ class WaterQualityParameterSerializer(serializers.ModelSerializer):
 
 class WaterQualityReadingSerializer(serializers.ModelSerializer):
 
-    parameter_name = serializers.CharField(source="parameter.name", read_only=True)
-    parameter_code = serializers.CharField(source="parameter.code", read_only=True)
-    plant_name = serializers.CharField(source="plant.name", read_only=True)
-    plant_stage_name = serializers.CharField(source="plant_stage.name", read_only=True)
-    sensor_name = serializers.CharField(source="sensor.name", read_only=True)
+    parameter_name = serializers.CharField(
+        source="parameter.name",
+        read_only=True,
+    )
+
+    parameter_code = serializers.CharField(
+        source="parameter.code",
+        read_only=True,
+    )
+
+    sensor_name = serializers.CharField(
+        source="sensor.name",
+        read_only=True,
+    )
 
     class Meta:
         model = WaterQualityReading
@@ -82,13 +93,9 @@ class WaterQualityReadingSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "parameter",
-            "plant",
-            "plant_stage",
             "sensor",
             "parameter_name",
             "parameter_code",
-            "plant_name",
-            "plant_stage_name",
             "sensor_name",
             "value",
             "unit",
@@ -104,8 +111,6 @@ class WaterQualityReadingSerializer(serializers.ModelSerializer):
             "id",
             "parameter_name",
             "parameter_code",
-            "plant_name",
-            "plant_stage_name",
             "sensor_name",
             "created_at",
             "updated_at",
@@ -133,12 +138,16 @@ class WaterQualityReadingSerializer(serializers.ModelSerializer):
 
         sensor = data.get("sensor", getattr(self.instance, "sensor", None))
 
+        # Sensor is mandatory for sensor-based readings
         if source == "SENSOR" and sensor is None:
+
             raise serializers.ValidationError(
                 {"sensor": ("Sensor is required when " "source is SENSOR.")}
             )
 
+        # Sensor should not be provided for LAB or MANUAL readings
         if source in ["LAB", "MANUAL"] and sensor is not None:
+
             raise serializers.ValidationError(
                 {"sensor": ("Sensor should be empty for " "LAB or MANUAL readings.")}
             )

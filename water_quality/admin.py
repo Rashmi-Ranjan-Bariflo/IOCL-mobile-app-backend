@@ -56,8 +56,6 @@ class WaterQualityReadingAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "parameter",
-        "plant",
-        "plant_stage",
         "sensor",
         "value",
         "unit",
@@ -75,8 +73,6 @@ class WaterQualityReadingAdmin(admin.ModelAdmin):
     search_fields = (
         "parameter__name",
         "parameter__code",
-        "plant__name",
-        "plant__code",
         "sensor__name",
         "sensor__code",
     )
@@ -84,8 +80,6 @@ class WaterQualityReadingAdmin(admin.ModelAdmin):
     list_filter = (
         "source",
         "status",
-        "plant",
-        "plant_stage",
         "recorded_at",
     )
 
@@ -98,7 +92,5 @@ class WaterQualityReadingAdmin(admin.ModelAdmin):
 
     autocomplete_fields = (
         "parameter",
-        "plant",
-        "plant_stage",
         "sensor",
     )

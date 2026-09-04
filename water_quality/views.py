@@ -1,10 +1,12 @@
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import (
     WaterQualityParameter,
     WaterQualityReading,
 )
+
 from .serializers import (
     WaterQualityParameterSerializer,
     WaterQualityReadingSerializer,
@@ -78,6 +80,7 @@ class WaterQualityParameterDetailView(APIView):
         parameter = self.get_object(pk)
 
         if parameter is None:
+
             return Response(
                 {
                     "success": False,
@@ -101,6 +104,7 @@ class WaterQualityParameterDetailView(APIView):
         parameter = self.get_object(pk)
 
         if parameter is None:
+
             return Response(
                 {
                     "success": False,
@@ -137,6 +141,7 @@ class WaterQualityParameterDetailView(APIView):
         parameter = self.get_object(pk)
 
         if parameter is None:
+
             return Response(
                 {
                     "success": False,
@@ -175,6 +180,7 @@ class WaterQualityParameterDetailView(APIView):
         parameter = self.get_object(pk)
 
         if parameter is None:
+
             return Response(
                 {
                     "success": False,
@@ -205,28 +211,8 @@ class WaterQualityReadingListCreateView(APIView):
 
         readings = WaterQualityReading.objects.select_related(
             "parameter",
-            "plant",
-            "plant_stage",
             "sensor",
         ).all()
-
-        # --------------------------------------------------
-        # Filter by Plant
-        # --------------------------------------------------
-
-        plant_id = request.query_params.get("plant")
-
-        if plant_id:
-            readings = readings.filter(plant_id=plant_id)
-
-        # --------------------------------------------------
-        # Filter by Plant Stage
-        # --------------------------------------------------
-
-        plant_stage_id = request.query_params.get("plant_stage")
-
-        if plant_stage_id:
-            readings = readings.filter(plant_stage_id=plant_stage_id)
 
         # --------------------------------------------------
         # Filter by Parameter
@@ -317,8 +303,6 @@ class WaterQualityReadingDetailView(APIView):
         try:
             return WaterQualityReading.objects.select_related(
                 "parameter",
-                "plant",
-                "plant_stage",
                 "sensor",
             ).get(pk=pk)
 
@@ -330,6 +314,7 @@ class WaterQualityReadingDetailView(APIView):
         reading = self.get_object(pk)
 
         if reading is None:
+
             return Response(
                 {
                     "success": False,
@@ -353,6 +338,7 @@ class WaterQualityReadingDetailView(APIView):
         reading = self.get_object(pk)
 
         if reading is None:
+
             return Response(
                 {
                     "success": False,
@@ -389,6 +375,7 @@ class WaterQualityReadingDetailView(APIView):
         reading = self.get_object(pk)
 
         if reading is None:
+
             return Response(
                 {
                     "success": False,
@@ -427,6 +414,7 @@ class WaterQualityReadingDetailView(APIView):
         reading = self.get_object(pk)
 
         if reading is None:
+
             return Response(
                 {
                     "success": False,

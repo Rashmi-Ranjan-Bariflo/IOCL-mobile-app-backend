@@ -15,6 +15,7 @@ class AlertTypeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AlertType
+
         fields = [
             "id",
             "name",
@@ -40,12 +41,16 @@ class AlertTypeSerializer(serializers.ModelSerializer):
 
 class AlertSerializer(serializers.ModelSerializer):
 
+    # ------------------------------------------------------
     # Display related object names in GET response
-    plant_name = serializers.CharField(source="plant.name", read_only=True)
-    plant_stage_name = serializers.CharField(source="plant_stage.name", read_only=True)
+    # ------------------------------------------------------
+
     equipment_name = serializers.CharField(source="equipment.name", read_only=True)
+
     sensor_name = serializers.CharField(source="sensor.name", read_only=True)
+
     parameter_name = serializers.CharField(source="parameter.name", read_only=True)
+
     alert_type_name = serializers.CharField(source="alert_type.name", read_only=True)
 
     class Meta:
@@ -53,11 +58,9 @@ class AlertSerializer(serializers.ModelSerializer):
 
         fields = [
             "id",
+            # --------------------------------------------------
             # Relationships
-            "plant",
-            "plant_name",
-            "plant_stage",
-            "plant_stage_name",
+            # --------------------------------------------------
             "equipment",
             "equipment_name",
             "sensor",
@@ -66,29 +69,43 @@ class AlertSerializer(serializers.ModelSerializer):
             "parameter_name",
             "alert_type",
             "alert_type_name",
-            # Alert information
+            # --------------------------------------------------
+            # Alert Information
+            # --------------------------------------------------
             "title",
             "message",
             "source",
             "severity",
             "status",
+            # --------------------------------------------------
             # Values
+            # --------------------------------------------------
             "current_value",
             "limit_value",
             "unit",
-            # Time
+            # --------------------------------------------------
+            # Time Information
+            # --------------------------------------------------
             "triggered_at",
             "acknowledged_at",
             "resolved_at",
-            # Additional
+            # --------------------------------------------------
+            # Additional Information
+            # --------------------------------------------------
             "remarks",
-            # System
+            # --------------------------------------------------
+            # System Information
+            # --------------------------------------------------
             "created_at",
             "updated_at",
         ]
 
         read_only_fields = [
             "id",
+            "equipment_name",
+            "sensor_name",
+            "parameter_name",
+            "alert_type_name",
             "created_at",
             "updated_at",
         ]
@@ -103,13 +120,24 @@ class AlertSerializer(serializers.ModelSerializer):
             "limit_value", getattr(self.instance, "limit_value", None)
         )
 
+        # ------------------------------------------------------
+        # Validate Current Value and Limit Value
+        # ------------------------------------------------------
+
         if current_value is not None and limit_value is not None:
+
             try:
                 float(current_value)
                 float(limit_value)
+
             except (TypeError, ValueError):
+
                 raise serializers.ValidationError(
-                    "Current value and limit value must be valid numbers."
+                    {
+                        "value": (
+                            "Current value and limit value " "must be valid numbers."
+                        )
+                    }
                 )
 
         return data
@@ -129,19 +157,29 @@ class AlertNotificationSerializer(serializers.ModelSerializer):
 
         fields = [
             "id",
+            # --------------------------------------------------
+            # Alert
+            # --------------------------------------------------
             "alert",
             "alert_title",
+            # --------------------------------------------------
+            # Notification
+            # --------------------------------------------------
             "notification_type",
             "recipient",
             "status",
             "sent_at",
             "error_message",
+            # --------------------------------------------------
+            # System Information
+            # --------------------------------------------------
             "created_at",
             "updated_at",
         ]
 
         read_only_fields = [
             "id",
+            "alert_title",
             "created_at",
             "updated_at",
         ]

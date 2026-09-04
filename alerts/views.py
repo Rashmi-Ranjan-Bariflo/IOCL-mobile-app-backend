@@ -221,8 +221,6 @@ class AlertListCreateView(APIView):
     def get(self, request):
 
         alerts = Alert.objects.select_related(
-            "plant",
-            "plant_stage",
             "equipment",
             "sensor",
             "parameter",
@@ -280,8 +278,6 @@ class AlertDetailView(APIView):
 
         try:
             return Alert.objects.select_related(
-                "plant",
-                "plant_stage",
                 "equipment",
                 "sensor",
                 "parameter",

@@ -1,6 +1,5 @@
 from django.db import models
 
-from plants.models import Plant, PlantStage
 from equipment.models import Equipment
 from sensors.models import Sensor
 from process_monitoring.models import ProcessParameter
@@ -21,11 +20,17 @@ class AlertType(models.Model):
     ]
 
     name = models.CharField(max_length=100, unique=True)
+
     code = models.CharField(max_length=50, unique=True)
+
     category = models.CharField(max_length=30, choices=CATEGORY_CHOICES)
+
     description = models.TextField(blank=True, null=True)
+
     is_active = models.BooleanField(default=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -70,36 +75,78 @@ class Alert(models.Model):
     # Relationships
     # ------------------------------------------------------
 
-    plant = models.ForeignKey(Plant, on_delete=models.CASCADE, related_name="alerts")
-    plant_stage = models.ForeignKey(PlantStage,on_delete=models.SET_NULL,null=True,blank=True,related_name="alerts",)
-    equipment = models.ForeignKey(Equipment,on_delete=models.SET_NULL,null=True,blank=True,related_name="alerts",)
-    sensor = models.ForeignKey(Sensor, on_delete=models.SET_NULL, null=True, blank=True, related_name="alerts")
-    parameter = models.ForeignKey(ProcessParameter,on_delete=models.SET_NULL,null=True,blank=True,related_name="alerts",)
-    alert_type = models.ForeignKey(AlertType, on_delete=models.PROTECT, related_name="alerts")
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+    )
+
+    sensor = models.ForeignKey(
+        Sensor, on_delete=models.SET_NULL, null=True, blank=True, related_name="alerts"
+    )
+
+    parameter = models.ForeignKey(
+        ProcessParameter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alerts",
+    )
+
+    alert_type = models.ForeignKey(
+        AlertType, on_delete=models.PROTECT, related_name="alerts"
+    )
 
     # ------------------------------------------------------
-    # Alert information
+    # Alert Information
     # ------------------------------------------------------
 
     title = models.CharField(max_length=200)
+
     message = models.TextField()
+
     source = models.CharField(max_length=30, choices=SOURCE_CHOICES)
-    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default="MEDIUM")
+
+    severity = models.CharField(
+        max_length=20, choices=SEVERITY_CHOICES, default="MEDIUM"
+    )
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="ACTIVE")
 
     # ------------------------------------------------------
     # Values
     # ------------------------------------------------------
 
-    current_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
-    limit_value = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    current_value = models.DecimalField(
+        max_digits=12, decimal_places=4, null=True, blank=True
+    )
+
+    limit_value = models.DecimalField(
+        max_digits=12, decimal_places=4, null=True, blank=True
+    )
+
     unit = models.CharField(max_length=30, blank=True, null=True)
 
+    # ------------------------------------------------------
+    # Time Information
+    # ------------------------------------------------------
+
     triggered_at = models.DateTimeField()
+
     acknowledged_at = models.DateTimeField(null=True, blank=True)
+
     resolved_at = models.DateTimeField(null=True, blank=True)
+
+    # ------------------------------------------------------
+    # Additional Information
+    # ------------------------------------------------------
+
     remarks = models.TextField(blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -108,17 +155,9 @@ class Alert(models.Model):
 
         indexes = [
             models.Index(
-                fields=["plant", "status"],
-                name="alert_plant_status_idx",
+                fields=["severity", "status"], name="alert_severity_status_idx"
             ),
-            models.Index(
-                fields=["severity", "status"],
-                name="alert_severity_status_idx",
-            ),
-            models.Index(
-                fields=["triggered_at"],
-                name="alert_triggered_idx",
-            ),
+            models.Index(fields=["triggered_at"], name="alert_triggered_idx"),
         ]
 
     def __str__(self):
@@ -144,14 +183,24 @@ class AlertNotification(models.Model):
         ("FAILED", "Failed"),
     ]
 
-    alert = models.ForeignKey(Alert, on_delete=models.CASCADE, related_name="notifications")
-    notification_type = models.CharField(max_length=20, choices=NOTIFICATION_TYPE_CHOICES)
+    alert = models.ForeignKey(
+        Alert, on_delete=models.CASCADE, related_name="notifications"
+    )
+
+    notification_type = models.CharField(
+        max_length=20, choices=NOTIFICATION_TYPE_CHOICES
+    )
+
     recipient = models.CharField(max_length=255)
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+
     sent_at = models.DateTimeField(null=True, blank=True)
+
     error_message = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

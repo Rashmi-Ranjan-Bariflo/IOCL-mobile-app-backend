@@ -3,7 +3,6 @@ from rest_framework import serializers
 from .models import (
     EquipmentType,
     Equipment,
-    EquipmentStage,
 )
 
 
@@ -53,11 +52,6 @@ class EquipmentSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
-    plant_name = serializers.CharField(
-        source="plant.name",
-        read_only=True,
-    )
-
     class Meta:
         model = Equipment
 
@@ -67,8 +61,6 @@ class EquipmentSerializer(serializers.ModelSerializer):
             "code",
             "equipment_type",
             "equipment_type_name",
-            "plant",
-            "plant_name",
             "description",
             "location",
             "manufacturer",
@@ -83,7 +75,6 @@ class EquipmentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "equipment_type_name",
-            "plant_name",
             "created_at",
             "updated_at",
         ]
@@ -137,92 +128,3 @@ class EquipmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid equipment status.")
 
         return value
-
-
-# ==========================================================
-#                  EQUIPMENT STAGE SERIALIZER
-# ==========================================================
-class EquipmentStageSerializer(serializers.ModelSerializer):
-
-    equipment_name = serializers.CharField(
-        source="equipment.name",
-        read_only=True,
-    )
-
-    equipment_code = serializers.CharField(
-        source="equipment.code",
-        read_only=True,
-    )
-
-    plant_stage_name = serializers.CharField(
-        source="plant_stage.name",
-        read_only=True,
-    )
-
-    class Meta:
-        model = EquipmentStage
-
-        fields = [
-            "id",
-            "equipment",
-            "equipment_name",
-            "equipment_code",
-            "plant_stage",
-            "plant_stage_name",
-            "is_active",
-            "created_at",
-            "updated_at",
-        ]
-
-        read_only_fields = [
-            "id",
-            "equipment_name",
-            "equipment_code",
-            "plant_stage_name",
-            "created_at",
-            "updated_at",
-        ]
-
-    # ------------------------------------------------------
-    # Validate Equipment + Stage Combination
-    # ------------------------------------------------------
-    def validate(self, attrs):
-
-        equipment = attrs.get(
-            "equipment",
-            getattr(
-                self.instance,
-                "equipment",
-                None,
-            ),
-        )
-
-        plant_stage = attrs.get(
-            "plant_stage",
-            getattr(
-                self.instance,
-                "plant_stage",
-                None,
-            ),
-        )
-
-        if equipment and plant_stage:
-
-            queryset = EquipmentStage.objects.filter(
-                equipment=equipment,
-                plant_stage=plant_stage,
-            )
-
-            if self.instance:
-                queryset = queryset.exclude(pk=self.instance.pk)
-
-            if queryset.exists():
-                raise serializers.ValidationError(
-                    {
-                        "non_field_errors": [
-                            "This equipment is already assigned " "to this plant stage."
-                        ]
-                    }
-                )
-
-        return attrs

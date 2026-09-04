@@ -4,8 +4,6 @@ from .views import (
     EquipmentTypeDetailView,
     EquipmentListCreateView,
     EquipmentDetailView,
-    EquipmentStageListCreateView,
-    EquipmentStageDetailView,
 )
 
 
@@ -21,10 +19,4 @@ urlpatterns = [
     # ======================================================
     path("",EquipmentListCreateView.as_view(),name="equipment-list-create",),
     path("<int:pk>/", EquipmentDetailView.as_view(), name="equipment-detail",),
-
-    # ======================================================
-    #                  EQUIPMENT STAGES
-    # ======================================================
-    path("stages/", EquipmentStageListCreateView.as_view(), name="equipment-stage-list-create",),
-    path("stages/<int:pk>/", EquipmentStageDetailView.as_view(), name="equipment-stage-detail",),
 ]

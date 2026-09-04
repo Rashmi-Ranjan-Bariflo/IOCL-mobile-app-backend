@@ -2,11 +2,13 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import (
     ProcessParameter,
     ProcessReading,
     EquipmentStatus,
 )
+
 from .serializers import (
     ProcessParameterSerializer,
     ProcessReadingSerializer,
@@ -23,7 +25,9 @@ class ProcessParameterListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+
         parameters = ProcessParameter.objects.all()
+
         serializer = ProcessParameterSerializer(parameters, many=True)
 
         return Response(
@@ -38,7 +42,9 @@ class ProcessParameterListCreateView(APIView):
     def post(self, request):
 
         serializer = ProcessParameterSerializer(data=request.data)
+
         if serializer.is_valid():
+
             parameter = serializer.save()
 
             return Response(
@@ -217,8 +223,6 @@ class ProcessReadingListCreateView(APIView):
     def get(self, request):
 
         readings = ProcessReading.objects.select_related(
-            "plant",
-            "plant_stage",
             "equipment",
             "sensor",
             "parameter",
@@ -275,8 +279,6 @@ class ProcessReadingDetailView(APIView):
 
         try:
             return ProcessReading.objects.select_related(
-                "plant",
-                "plant_stage",
                 "equipment",
                 "sensor",
                 "parameter",
@@ -423,8 +425,6 @@ class EquipmentStatusListCreateView(APIView):
     def get(self, request):
 
         statuses = EquipmentStatus.objects.select_related(
-            "plant",
-            "plant_stage",
             "equipment",
         ).all()
 
@@ -479,8 +479,6 @@ class EquipmentStatusDetailView(APIView):
 
         try:
             return EquipmentStatus.objects.select_related(
-                "plant",
-                "plant_stage",
                 "equipment",
             ).get(pk=pk)
 

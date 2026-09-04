@@ -31,7 +31,6 @@ INSTALLED_APPS = [
     # 'rest_framework_simplejwt.token_blacklist',
     # Local apps
     'users',
-    'plants',
     'equipment',
     'sensors',
     'water_quality',

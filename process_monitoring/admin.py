@@ -46,8 +46,6 @@ class ProcessReadingAdmin(admin.ModelAdmin):
 
     list_display = (
         "id",
-        "plant",
-        "plant_stage",
         "equipment",
         "sensor",
         "parameter",
@@ -61,15 +59,11 @@ class ProcessReadingAdmin(admin.ModelAdmin):
     list_filter = (
         "source",
         "status",
-        "plant",
-        "plant_stage",
         "parameter",
         "recorded_at",
     )
 
     search_fields = (
-        "plant__name",
-        "plant_stage__name",
         "equipment__name",
         "sensor__name",
         "parameter__name",
@@ -80,8 +74,6 @@ class ProcessReadingAdmin(admin.ModelAdmin):
     date_hierarchy = "recorded_at"
 
     list_select_related = (
-        "plant",
-        "plant_stage",
         "equipment",
         "sensor",
         "parameter",
@@ -98,8 +90,6 @@ class EquipmentStatusAdmin(admin.ModelAdmin):
 
     list_display = (
         "id",
-        "plant",
-        "plant_stage",
         "equipment",
         "status",
         "recorded_at",
@@ -108,14 +98,10 @@ class EquipmentStatusAdmin(admin.ModelAdmin):
 
     list_filter = (
         "status",
-        "plant",
-        "plant_stage",
         "recorded_at",
     )
 
     search_fields = (
-        "plant__name",
-        "plant_stage__name",
         "equipment__name",
         "remarks",
     )
@@ -124,8 +110,4 @@ class EquipmentStatusAdmin(admin.ModelAdmin):
 
     date_hierarchy = "recorded_at"
 
-    list_select_related = (
-        "plant",
-        "plant_stage",
-        "equipment",
-    )
+    list_select_related = ("equipment",)

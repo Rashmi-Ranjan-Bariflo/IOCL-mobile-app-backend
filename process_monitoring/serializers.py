@@ -1,4 +1,5 @@
 from rest_framework import serializers
+
 from .models import (
     ProcessParameter,
     ProcessReading,
@@ -14,6 +15,7 @@ class ProcessParameterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProcessParameter
+
         fields = [
             "id",
             "name",
@@ -41,10 +43,10 @@ class ProcessParameterSerializer(serializers.ModelSerializer):
 
 class ProcessReadingSerializer(serializers.ModelSerializer):
 
-    plant_name = serializers.CharField(source="plant.name", read_only=True)
-    plant_stage_name = serializers.CharField(source="plant_stage.name", read_only=True)
     equipment_name = serializers.CharField(source="equipment.name", read_only=True)
+
     sensor_name = serializers.CharField(source="sensor.name", read_only=True)
+
     parameter_name = serializers.CharField(source="parameter.name", read_only=True)
 
     class Meta:
@@ -53,14 +55,10 @@ class ProcessReadingSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             # IDs
-            "plant",
-            "plant_stage",
             "equipment",
             "sensor",
             "parameter",
             # Names
-            "plant_name",
-            "plant_stage_name",
             "equipment_name",
             "sensor_name",
             "parameter_name",
@@ -78,8 +76,6 @@ class ProcessReadingSerializer(serializers.ModelSerializer):
 
         read_only_fields = [
             "id",
-            "plant_name",
-            "plant_stage_name",
             "equipment_name",
             "sensor_name",
             "parameter_name",
@@ -91,13 +87,16 @@ class ProcessReadingSerializer(serializers.ModelSerializer):
 
         parameter = attrs.get("parameter")
         unit = attrs.get("unit")
+        value = attrs.get("value")
 
         # --------------------------------------------------
-        # Validate unit
+        # Validate Unit
         # --------------------------------------------------
 
         if parameter and unit:
+
             if parameter.unit and parameter.unit != unit:
+
                 raise serializers.ValidationError(
                     {
                         "unit": (
@@ -109,10 +108,8 @@ class ProcessReadingSerializer(serializers.ModelSerializer):
                 )
 
         # --------------------------------------------------
-        # Validate parameter range
+        # Validate Parameter Range
         # --------------------------------------------------
-
-        value = attrs.get("value")
 
         if parameter and value is not None:
 
@@ -132,8 +129,6 @@ class ProcessReadingSerializer(serializers.ModelSerializer):
 
 class EquipmentStatusSerializer(serializers.ModelSerializer):
 
-    plant_name = serializers.CharField(source="plant.name", read_only=True)
-    plant_stage_name = serializers.CharField(source="plant_stage.name", read_only=True)
     equipment_name = serializers.CharField(source="equipment.name", read_only=True)
 
     class Meta:
@@ -141,13 +136,8 @@ class EquipmentStatusSerializer(serializers.ModelSerializer):
 
         fields = [
             "id",
-            # IDs
-            "plant",
-            "plant_stage",
+            # Equipment
             "equipment",
-            # Names
-            "plant_name",
-            "plant_stage_name",
             "equipment_name",
             # Status
             "status",
@@ -160,8 +150,6 @@ class EquipmentStatusSerializer(serializers.ModelSerializer):
 
         read_only_fields = [
             "id",
-            "plant_name",
-            "plant_stage_name",
             "equipment_name",
             "created_at",
             "updated_at",
