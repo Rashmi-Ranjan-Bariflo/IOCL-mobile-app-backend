@@ -11,6 +11,7 @@ from .models import (
     TreatmentBatch,
     DosingRecord,
     ProcessExecutionLog,
+    Equipment,
 )
 
 from .serializers import (
@@ -20,6 +21,8 @@ from .serializers import (
     DosingRecordSerializer,
     ProcessExecutionLogSerializer,
 )
+from django.db.models import Prefetch
+from sensors.models import Sensor
 
 
 # ==========================================================
@@ -631,4 +634,175 @@ class ProcessExecutionLogListCreateView(APIView):
                 "errors": serializer.errors,
             },
             status=status.HTTP_400_BAD_REQUEST,
+        )
+
+
+
+
+
+# ==========================================================
+#           INLET STAGES WITH EQUIPMENT AND SENSORS
+# ==========================================================
+class InletStageEquipmentView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # --------------------------------------------------
+        # Get only equipment belonging to logged-in user
+        # --------------------------------------------------
+        print("REQUEST USER:", request.user)
+        print("REQUEST USER TYPE:", type(request.user))
+
+        equipment_queryset = (
+            Equipment.objects
+            .filter(
+                user=request.user,
+                is_active=True,
+            )
+            .select_related(
+                "equipment_type",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "sensors",
+                    queryset=(
+                        Sensor.objects
+                        .select_related("sensor_type")
+                        .filter(is_active=True)
+                        .order_by("name")
+                    ),
+                )
+            )
+            .order_by("name")
+        )
+
+        # --------------------------------------------------
+        # Get two inlet stages
+        # --------------------------------------------------
+
+        stages = (
+            TreatmentStage.objects
+            .filter(
+                user=request.user,
+                stage_type__in=[
+                    "WASTEWATER_COLLECTION",
+                    "NORMALWATER_COLLECTION",
+                ],
+                is_active=True,
+            )
+            .prefetch_related(
+                Prefetch(
+                    "equipments",
+                    queryset=equipment_queryset,
+                )
+            )
+            .order_by("sequence")
+        )
+
+        # --------------------------------------------------
+        # Response containers
+        # --------------------------------------------------
+
+        wastewater_stage_data = None
+        normalwater_stage_data = None
+
+        # --------------------------------------------------
+        # Process stages
+        # --------------------------------------------------
+
+        for stage in stages:
+
+            equipment_data = []
+
+            # ----------------------------------------------
+            # Get equipment of this stage
+            # ----------------------------------------------
+
+            for equipment in stage.equipments.all():
+
+                sensors_data = []
+
+                # ------------------------------------------
+                # Get sensors of equipment
+                # ------------------------------------------
+
+                for sensor in equipment.sensors.all():
+
+                    sensors_data.append(
+                        {
+                            "id": sensor.id,
+                            "name": sensor.name,
+                            "code": sensor.code,
+                            "sensor_type": (
+                                sensor.sensor_type.name
+                                if sensor.sensor_type
+                                else None
+                            ),
+                            "unit": sensor.unit,
+                            "status": sensor.status,
+                            "is_active": sensor.is_active,
+                        }
+                    )
+
+                # ------------------------------------------
+                # Equipment data
+                # ------------------------------------------
+
+                equipment_data.append(
+                    {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": (
+                            equipment.equipment_type.name
+                            if equipment.equipment_type
+                            else None
+                        ),
+                        "description": equipment.description,
+                        "location": equipment.location,
+                        "status": equipment.status,
+                        "is_active": equipment.is_active,
+                        "sensors": sensors_data,
+                    }
+                )
+
+            # ----------------------------------------------
+            # Stage data
+            # ----------------------------------------------
+
+            stage_data = {
+                "id": stage.id,
+                "name": stage.name,
+                "stage_type": stage.stage_type,
+                "sequence": stage.sequence,
+                "description": stage.description,
+                "equipment": equipment_data,
+            }
+
+            # ----------------------------------------------
+            # Separate stages
+            # ----------------------------------------------
+
+            if stage.stage_type == "WASTEWATER_COLLECTION":
+
+                wastewater_stage_data = stage_data
+
+            elif stage.stage_type == "NORMALWATER_COLLECTION":
+
+                normalwater_stage_data = stage_data
+
+        # --------------------------------------------------
+        # Final response
+        # --------------------------------------------------
+
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "wastewater_stage": wastewater_stage_data,
+                    "normalwater_stage": normalwater_stage_data,
+                },
+            }
         )

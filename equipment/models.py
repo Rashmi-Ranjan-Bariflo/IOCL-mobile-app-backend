@@ -44,6 +44,17 @@ class Equipment(models.Model):
         ("FAULT", "Fault"),
     ]
 
+    user = models.ForeignKey(
+        "users.User",
+        on_delete=models.CASCADE,
+        related_name="equipment",
+    )
+    # treatment_process = models.ForeignKey(
+    #     "treatment_process.TreatmentStage",
+    #     on_delete=models.CASCADE,
+    #     related_name="equipment",
+    # )
+    
     name = models.CharField(
         max_length=150,
     )

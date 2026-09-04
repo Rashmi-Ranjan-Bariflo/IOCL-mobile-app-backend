@@ -10,6 +10,7 @@ from .views import (
     TreatmentBatchCurrentProcessView,
     DosingRecordListCreateView,
     ProcessExecutionLogListCreateView,
+    InletStageEquipmentView
 )
 
 urlpatterns = [
@@ -72,5 +73,11 @@ urlpatterns = [
         "execution-logs/",
         ProcessExecutionLogListCreateView.as_view(),
         name="execution-log-list-create",
+    ),
+
+    path(
+        "inlet-stages/",
+        InletStageEquipmentView.as_view(),
+        name="inlet-stage-equipment",
     ),
 ]
