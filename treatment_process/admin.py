@@ -4,6 +4,7 @@ from .models import (
     TreatmentStage,
     TreatmentProcess,
     TreatmentBatch,
+    StageExecutionLog,
     DosingRecord,
     ProcessExecutionLog,
 )
@@ -66,7 +67,6 @@ class TreatmentProcessAdmin(admin.ModelAdmin):
         "sequence",
         "duration_seconds",
         "target_volume_liters",
-        "status",
         "is_active",
         "created_at",
         "updated_at",
@@ -79,7 +79,6 @@ class TreatmentProcessAdmin(admin.ModelAdmin):
 
     list_filter = (
         "stage",
-        "status",
         "is_active",
     )
 
@@ -99,7 +98,9 @@ class TreatmentProcessAdmin(admin.ModelAdmin):
         "updated_at",
     )
 
-    autocomplete_fields = ("stage",)
+    autocomplete_fields = (
+        "stage",
+    )
 
 
 # ==========================================================
@@ -111,13 +112,13 @@ class TreatmentBatchAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "batch_number",
-        "process",
         "input_volume_liters",
         "output_volume_liters",
         "status",
         "started_at",
         "completed_at",
         "created_at",
+        "updated_at",
     )
 
     list_display_links = (
@@ -127,14 +128,55 @@ class TreatmentBatchAdmin(admin.ModelAdmin):
 
     list_filter = (
         "status",
-        "process__stage",
-        "process",
     )
 
     search_fields = (
         "batch_number",
-        "process__name",
-        "process__stage__name",
+    )
+
+    ordering = (
+        "-created_at",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+
+# ==========================================================
+# STAGE EXECUTION LOG ADMIN
+# ==========================================================
+@admin.register(StageExecutionLog)
+class StageExecutionLogAdmin(admin.ModelAdmin):
+
+    list_display = (
+        "id",
+        "batch",
+        "stage",
+        "status",
+        "started_at",
+        "completed_at",
+        "actual_duration_seconds",
+        "created_at",
+        "updated_at",
+    )
+
+    list_display_links = (
+        "id",
+        "batch",
+    )
+
+    list_filter = (
+        "status",
+        "stage",
+    )
+
+    search_fields = (
+        "batch__batch_number",
+        "stage__name",
+        "stage__stage_type",
+        "remarks",
     )
 
     ordering = ("-created_at",)
@@ -144,7 +186,10 @@ class TreatmentBatchAdmin(admin.ModelAdmin):
         "updated_at",
     )
 
-    autocomplete_fields = ("process",)
+    autocomplete_fields = (
+        "batch",
+        "stage",
+    )
 
 
 # ==========================================================
@@ -174,7 +219,6 @@ class DosingRecordAdmin(admin.ModelAdmin):
 
     search_fields = (
         "batch__batch_number",
-        "batch__process__name",
         "notes",
     )
 
@@ -200,6 +244,7 @@ class ProcessExecutionLogAdmin(admin.ModelAdmin):
         "completed_at",
         "actual_duration_seconds",
         "created_at",
+        "updated_at",
     )
 
     list_display_links = (
@@ -222,7 +267,10 @@ class ProcessExecutionLogAdmin(admin.ModelAdmin):
 
     ordering = ("-created_at",)
 
-    readonly_fields = ("created_at",)
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
 
     autocomplete_fields = (
         "batch",
