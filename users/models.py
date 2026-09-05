@@ -55,7 +55,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = "users"
-        ordering = ["-created_at"]
+        ordering = ["-created_at"]  
 
     @property
     def is_authenticated(self):
