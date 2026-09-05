@@ -3,6 +3,8 @@ from django.contrib import admin
 from .models import (
     EquipmentType,
     Equipment,
+    EquipmentTest,
+    EquipmentManualLog
 )
 
 
@@ -99,3 +101,15 @@ class EquipmentAdmin(admin.ModelAdmin):
     autocomplete_fields = (
         "equipment_type",
     )
+
+
+
+@admin.register(EquipmentTest)
+class EquipmentTestAdmin(admin.ModelAdmin):
+    list_display = ("id", "equipment", "stage","start_time","end_time","duration_seconds","tested_by","is_merged","merged_at")
+
+
+
+@admin.register(EquipmentManualLog)
+class EquipmentManualLogAdmin(admin.ModelAdmin):
+    list_display = ("id","equipment","stage","action","started_at","ended_at","performed_by")
