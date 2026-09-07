@@ -242,7 +242,9 @@ class EquipmentManualLog(models.Model):
     stage = models.ForeignKey(
         "treatment_process.TreatmentStage",
         on_delete=models.CASCADE,
-        related_name="equipment_manual_logs"
+        related_name="equipment_manual_logs",
+        null=True,         
+        blank=True
     )
 
     action = models.CharField(

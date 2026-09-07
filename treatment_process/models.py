@@ -490,3 +490,5 @@ class ProcessExecutionLog(models.Model):
 
     def __str__(self):
         return f"{self.batch.batch_number} - " f"{self.process.name}"
+
+

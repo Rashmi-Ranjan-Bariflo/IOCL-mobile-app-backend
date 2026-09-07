@@ -4,6 +4,7 @@ from .views import (
     EquipmentTypeDetailView,
     EquipmentListCreateView,
     EquipmentDetailView,
+    ValveOnView, ValveOffView, MotorOnView, MotorOffView
 )
 
 
@@ -19,4 +20,13 @@ urlpatterns = [
     # ======================================================
     path("",EquipmentListCreateView.as_view(),name="equipment-list-create",),
     path("<int:pk>/", EquipmentDetailView.as_view(), name="equipment-detail",),
+
+    # Valve
+    path("valve/<int:equipment_id>/on/", ValveOnView.as_view(), name="valve-on"),
+    path("valve/<int:equipment_id>/off/", ValveOffView.as_view(), name="valve-off"),
+
+    # Motor
+    path("motor/<int:equipment_id>/on/", MotorOnView.as_view(), name="motor-on"),
+    path("motor/<int:equipment_id>/off/", MotorOffView.as_view(), name="motor-off"),
+
 ]
