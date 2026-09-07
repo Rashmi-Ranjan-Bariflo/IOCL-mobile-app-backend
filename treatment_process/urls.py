@@ -22,7 +22,8 @@ from .views import (
     # Inlet Stage Equipment
     InletStageEquipmentView,
     TreatmentStageEquipmentListView,
-    StageBatchStartView
+    StageBatchStartView,
+    StageBatchStatusView
 )
 
 urlpatterns = [
@@ -128,6 +129,12 @@ urlpatterns = [
         "stages/<int:stage_id>/start/",
         StageBatchStartView.as_view(),
         name="stage-batch-start",
+    ),
+    # Status API
+    path(
+        "stages/<int:stage_id>/status/",
+        StageBatchStatusView.as_view(),
+        name="stage-batch-status",
     ),
 
 

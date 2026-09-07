@@ -807,3 +807,148 @@ class StageBatchProcessExecution(models.Model):
             f"{self.stage_batch.batch_number} - "
             f"{self.process.name}"
         )
+
+
+
+
+class StageBatchProcessEquipmentExecution(models.Model):
+    """
+    Stores the equipment-level execution result for a process.
+
+    This is different from Equipment.current_state.
+
+    Equipment.current_state:
+        -> Current/global state of the physical equipment.
+
+    This model:
+        -> Stores the state produced by a particular process execution.
+
+    Example:
+
+        Process: Pump motor start
+        Equipment: PM1
+        State: ON
+
+        Process: Pump motor stop
+        Equipment: PM1
+        State: OFF
+    """
+
+    STATE_CHOICES = [
+        ("ON", "On"),
+        ("OFF", "Off"),
+    ]
+
+    stage_batch_process_execution = models.ForeignKey(
+        StageBatchProcessExecution,
+        on_delete=models.CASCADE,
+        related_name="equipment_executions",
+    )
+
+    equipment = models.ForeignKey(
+        "equipment.Equipment",
+        on_delete=models.PROTECT,
+        related_name="stage_batch_process_equipment_executions",
+    )
+
+    state = models.CharField(
+        max_length=10,
+        choices=STATE_CHOICES,
+        blank=True,
+        null=True,
+    )
+
+    started_at = models.DateTimeField(
+        blank=True,
+        null=True,
+    )
+
+    completed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "stage_batch_process_equipment_executions"
+
+        ordering = [
+            "stage_batch_process_execution__process__sequence",
+            "equipment__name",
+        ]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "stage_batch_process_execution",
+                    "equipment",
+                ],
+                name="unique_process_equipment_execution",
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "stage_batch_process_execution",
+                    "equipment",
+                ],
+                name="stage_process_equipment_idx",
+            ),
+
+            models.Index(
+                fields=["equipment"],
+                name="stage_equipment_idx",
+            ),
+
+            models.Index(
+                fields=["state"],
+                name="stage_process_state_idx",
+            ),
+        ]
+
+    def start_execution(self):
+        """
+        Mark equipment execution as started.
+        """
+
+        self.started_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "started_at",
+                "updated_at",
+            ]
+        )
+
+    def complete_execution(self, state):
+        """
+        Mark equipment execution as completed and store
+        the final ON/OFF state produced by this process.
+        """
+
+        self.state = state
+        self.completed_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "state",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+    def __str__(self):
+        return (
+            f"{self.stage_batch_process_execution.stage_batch.batch_number} - "
+            f"{self.stage_batch_process_execution.process.name} - "
+            f"{self.equipment.name} - "
+            f"{self.state}"
+        )

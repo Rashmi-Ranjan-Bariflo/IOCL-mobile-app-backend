@@ -644,10 +644,544 @@
 
 
 
+import time
+
+from datetime import datetime, timedelta
+
 from django.utils import timezone
 
 from treatment_process.models import (
     StageBatchProcessExecution,
+)
+
+
+# class StageExecutionService:
+#     """
+#     Executes all processes of a StageBatch sequentially.
+
+#     Main rules:
+
+#     1. Processes execute according to their sequence.
+
+#     2. Process.equipments defines which equipment the process uses.
+
+#     3. Equipment.current_state determines the next operation:
+#            OFF -> ON
+#            ON  -> OFF
+
+#     4. Equipment.duration_seconds determines whether the equipment
+#        requires timing.
+
+#     5. Equipment without duration works as normal ON/OFF equipment.
+
+#     6. Equipment with duration is timing-enabled.
+
+#     7. When timing-enabled equipment is turned ON:
+#            - start_time is recorded.
+
+#     8. When the same timing-enabled equipment is requested to turn OFF:
+#            - elapsed time is calculated.
+#            - if duration is not completed, execution waits.
+#            - after duration is completed, equipment is turned OFF.
+
+#     9. No equipment-type-specific logic is used.
+
+#     10. At the end of the complete stage:
+#             current_state = OFF
+#             status = INACTIVE
+#     """
+
+#     def __init__(self, stage_batch):
+#         self.stage_batch = stage_batch
+
+#     # =========================================================
+#     # EXECUTE COMPLETE STAGE
+#     # =========================================================
+
+#     def execute(self):
+#         try:
+
+#             # -------------------------------------------------
+#             # Get all pending processes in sequence order.
+#             # -------------------------------------------------
+#             process_executions = (
+#                 StageBatchProcessExecution.objects
+#                 .filter(
+#                     stage_batch=self.stage_batch,
+#                     status="PENDING",
+#                 )
+#                 .select_related("process")
+#                 .prefetch_related("process__equipments")
+#                 .order_by("process__sequence")
+#             )
+
+#             # -------------------------------------------------
+#             # Execute processes one by one.
+#             # -------------------------------------------------
+#             for process_execution in process_executions:
+#                 self.execute_process(process_execution)
+
+#             # -------------------------------------------------
+#             # All processes completed.
+#             # -------------------------------------------------
+#             self.stage_batch.complete_batch()
+
+#             # -------------------------------------------------
+#             # After the complete stage:
+#             #
+#             # All stage equipment becomes:
+#             #
+#             #     current_state = OFF
+#             #     status = INACTIVE
+#             # -------------------------------------------------
+#             self.deactivate_stage_equipment()
+
+#             return True
+
+#         except Exception as exc:
+
+#             # -------------------------------------------------
+#             # If any process fails, fail the complete batch.
+#             # -------------------------------------------------
+#             self.stage_batch.fail_batch()
+
+#             # -------------------------------------------------
+#             # Safety state.
+#             # -------------------------------------------------
+#             self.deactivate_stage_equipment()
+
+#             raise exc
+
+#     # =========================================================
+#     # EXECUTE ONE PROCESS
+#     # =========================================================
+
+#     def execute_process(self, process_execution):
+
+#         process = process_execution.process
+
+#         # -----------------------------------------------------
+#         # Mark process as running.
+#         # -----------------------------------------------------
+#         process_execution.start_process()
+
+#         try:
+
+#             # -------------------------------------------------
+#             # Process equipment comes ONLY from:
+#             #
+#             #     TreatmentProcess.equipments
+#             #
+#             # We do not use stage.equipments here.
+#             # -------------------------------------------------
+#             equipments = list(
+#                 process.equipments
+#                 .filter(is_active=True)
+#                 .select_related("equipment_type")
+#                 .all()
+#             )
+
+#             # -------------------------------------------------
+#             # Every process must have equipment configured.
+#             # -------------------------------------------------
+#             if not equipments:
+#                 raise ValueError(
+#                     f"No equipment configured for process "
+#                     f"'{process.name}'."
+#                 )
+
+#             # -------------------------------------------------
+#             # Execute each equipment configured for this process.
+#             # -------------------------------------------------
+#             for equipment in equipments:
+#                 self.execute_equipment(equipment)
+
+#             # -------------------------------------------------
+#             # Process completed.
+#             # -------------------------------------------------
+#             process_execution.complete_process()
+
+#         except Exception as exc:
+
+#             # -------------------------------------------------
+#             # Mark process as failed.
+#             # -------------------------------------------------
+#             process_execution.fail_process(
+#                 remarks=str(exc)
+#             )
+
+#             raise
+
+#     # =========================================================
+#     # EXECUTE EQUIPMENT
+#     # =========================================================
+
+#     def execute_equipment(self, equipment):
+
+#         # -----------------------------------------------------
+#         # Validate equipment.
+#         # -----------------------------------------------------
+
+#         if not equipment.is_active:
+#             raise ValueError(
+#                 f"Equipment '{equipment.name}' is inactive."
+#             )
+
+#         if equipment.status in [
+#             "FAULT",
+#             "MAINTENANCE",
+#         ]:
+#             raise ValueError(
+#                 f"Equipment '{equipment.name}' is "
+#                 f"{equipment.status}."
+#             )
+
+#         # =====================================================
+#         # CASE 1: EQUIPMENT IS CURRENTLY OFF
+#         # =====================================================
+
+#         if equipment.current_state == "OFF":
+
+#             self.turn_equipment_on(equipment)
+
+#         # =====================================================
+#         # CASE 2: EQUIPMENT IS CURRENTLY ON
+#         # =====================================================
+
+#         elif equipment.current_state == "ON":
+
+#             self.turn_equipment_off(equipment)
+
+#         # =====================================================
+#         # INVALID STATE
+#         # =====================================================
+
+#         else:
+
+#             raise ValueError(
+#                 f"Invalid current state "
+#                 f"'{equipment.current_state}' for equipment "
+#                 f"'{equipment.name}'."
+#             )
+
+#     # =========================================================
+#     # TURN EQUIPMENT ON
+#     # =========================================================
+
+#     def turn_equipment_on(self, equipment):
+
+#         # -----------------------------------------------------
+#         # Change equipment state to ON.
+#         # -----------------------------------------------------
+#         equipment.current_state = "ON"
+
+#         # -----------------------------------------------------
+#         # Check whether this equipment requires timing.
+#         #
+#         # duration_seconds = NULL
+#         #     -> normal equipment
+#         #
+#         # duration_seconds has value
+#         #     -> timing-enabled equipment
+#         # -----------------------------------------------------
+
+#         if equipment.duration_seconds is not None:
+
+#             # -------------------------------------------------
+#             # Record the time at which the equipment
+#             # became ON.
+#             #
+#             # Your model currently uses TimeField, so we
+#             # continue using time().
+#             # -------------------------------------------------
+#             equipment.start_time = timezone.now().time()
+
+#             # -------------------------------------------------
+#             # Clear previous end time because a new ON cycle
+#             # has started.
+#             # -------------------------------------------------
+#             equipment.end_time = None
+
+#             print(
+#                 f"Equipment ON with timing: "
+#                 f"{equipment.name} "
+#                 f"({equipment.duration_seconds} seconds)"
+#             )
+
+#         else:
+
+#             # -------------------------------------------------
+#             # Normal equipment.
+#             #
+#             # No timing is required.
+#             # -------------------------------------------------
+#             print(
+#                 f"Equipment ON without timing: "
+#                 f"{equipment.name}"
+#             )
+
+#         # -----------------------------------------------------
+#         # Save the equipment state.
+#         # -----------------------------------------------------
+#         equipment.save(
+#             update_fields=[
+#                 "current_state",
+#                 "start_time",
+#                 "end_time",
+#                 "updated_at",
+#             ]
+#         )
+
+#     # =========================================================
+#     # TURN EQUIPMENT OFF
+#     # =========================================================
+
+#     def turn_equipment_off(self, equipment):
+
+#         # =====================================================
+#         # CASE 1: NO TIMING CONFIGURED
+#         # =====================================================
+
+#         if equipment.duration_seconds is None:
+
+#             # -------------------------------------------------
+#             # No duration means the equipment can be turned OFF
+#             # immediately.
+#             # -------------------------------------------------
+#             print(
+#                 f"Equipment OFF without timing: "
+#                 f"{equipment.name}"
+#             )
+
+#             equipment.current_state = "OFF"
+#             equipment.end_time = timezone.now().time()
+
+#             equipment.save(
+#                 update_fields=[
+#                     "current_state",
+#                     "end_time",
+#                     "updated_at",
+#                 ]
+#             )
+
+#             return
+
+#         # =====================================================
+#         # CASE 2: TIMING CONFIGURED
+#         # =====================================================
+
+#         print(
+#             f"Equipment OFF requested with timing: "
+#             f"{equipment.name} "
+#             f"({equipment.duration_seconds} seconds)"
+#         )
+
+#         # -----------------------------------------------------
+#         # Check whether the required duration has completed.
+#         # -----------------------------------------------------
+#         self.wait_for_duration(equipment)
+
+#         # -----------------------------------------------------
+#         # Required duration is now complete.
+#         # -----------------------------------------------------
+#         equipment.current_state = "OFF"
+#         equipment.end_time = timezone.now().time()
+
+#         equipment.save(
+#             update_fields=[
+#                 "current_state",
+#                 "end_time",
+#                 "updated_at",
+#             ]
+#         )
+
+#         print(
+#             f"Equipment OFF after duration completed: "
+#             f"{equipment.name}"
+#         )
+
+#     # =========================================================
+#     # WAIT FOR EQUIPMENT DURATION
+#     # =========================================================
+
+#     def wait_for_duration(self, equipment):
+
+#         # -----------------------------------------------------
+#         # If there is no duration, there is nothing to wait for.
+#         # -----------------------------------------------------
+#         if equipment.duration_seconds is None:
+#             return
+
+#         # -----------------------------------------------------
+#         # We need start_time to calculate elapsed time.
+#         # -----------------------------------------------------
+#         if equipment.start_time is None:
+
+#             raise ValueError(
+#                 f"Equipment '{equipment.name}' has duration "
+#                 f"configured but start_time is missing."
+#             )
+
+#         duration_seconds = equipment.duration_seconds
+
+#         # -----------------------------------------------------
+#         # Convert the stored TimeField into a datetime.
+#         #
+#         # We use today's date because the current ON cycle
+#         # started during the current execution.
+#         # -----------------------------------------------------
+#         now = timezone.now()
+
+#         start_datetime = timezone.make_aware(
+#             datetime.combine(
+#                 now.date(),
+#                 equipment.start_time,
+#             ),
+#             timezone.get_current_timezone(),
+#         )
+
+#         # -----------------------------------------------------
+#         # Calculate elapsed time.
+#         # -----------------------------------------------------
+#         elapsed_seconds = (
+#             timezone.now() - start_datetime
+#         ).total_seconds()
+
+#         # -----------------------------------------------------
+#         # Handle the case where the stored start_time is from
+#         # just before midnight and the current time is after
+#         # midnight.
+#         # -----------------------------------------------------
+#         if elapsed_seconds < 0:
+
+#             start_datetime = start_datetime - timedelta(days=1)
+
+#             elapsed_seconds = (
+#                 timezone.now() - start_datetime
+#             ).total_seconds()
+
+#         # -----------------------------------------------------
+#         # Calculate how much time is still remaining.
+#         # -----------------------------------------------------
+#         remaining_seconds = (
+#             duration_seconds - elapsed_seconds
+#         )
+
+#         print(
+#             f"Equipment '{equipment.name}' timing check:"
+#         )
+
+#         print(
+#             f"Required duration: "
+#             f"{duration_seconds} seconds"
+#         )
+
+#         print(
+#             f"Elapsed duration: "
+#             f"{round(elapsed_seconds, 2)} seconds"
+#         )
+
+#         print(
+#             f"Remaining duration: "
+#             f"{round(max(remaining_seconds, 0), 2)} seconds"
+#         )
+
+#         # =====================================================
+#         # DURATION ALREADY COMPLETED
+#         # =====================================================
+
+#         if remaining_seconds <= 0:
+
+#             print(
+#                 f"Equipment '{equipment.name}' duration "
+#                 f"is already completed."
+#             )
+
+#             return
+
+#         # =====================================================
+#         # DURATION NOT COMPLETED
+#         # =====================================================
+
+#         print(
+#             f"Equipment '{equipment.name}' must remain ON "
+#             f"for another {round(remaining_seconds, 2)} seconds."
+#         )
+
+#         # -----------------------------------------------------
+#         # Wait until the configured duration is completed.
+#         #
+#         # We use small intervals instead of sleeping for the
+#         # complete duration at once.
+#         #
+#         # This allows us to check the remaining time repeatedly.
+#         # -----------------------------------------------------
+#         while remaining_seconds > 0:
+
+#             # -------------------------------------------------
+#             # Wait only a small amount at a time.
+#             #
+#             # This avoids one very large sleep operation.
+#             # -------------------------------------------------
+#             sleep_seconds = min(
+#                 remaining_seconds,
+#                 0.5,
+#             )
+
+#             time.sleep(sleep_seconds)
+
+#             # -------------------------------------------------
+#             # Recalculate elapsed time.
+#             # -------------------------------------------------
+#             elapsed_seconds = (
+#                 timezone.now() - start_datetime
+#             ).total_seconds()
+
+#             remaining_seconds = (
+#                 duration_seconds - elapsed_seconds
+#             )
+
+#         print(
+#             f"Equipment '{equipment.name}' duration completed."
+#         )
+
+#     # =========================================================
+#     # DEACTIVATE STAGE EQUIPMENT
+#     # =========================================================
+
+#     def deactivate_stage_equipment(self):
+
+#         stage = self.stage_batch.stage
+
+#         # -----------------------------------------------------
+#         # At the end of the stage:
+#         #
+#         # current_state -> OFF
+#         # status         -> INACTIVE
+#         #
+#         # This is the final safety state of the stage.
+#         # -----------------------------------------------------
+
+#         stage.equipments.filter(
+#             is_active=True
+#         ).update(
+#             current_state="OFF",
+#             status="INACTIVE",
+#         )
+
+
+
+
+
+import time
+
+from datetime import datetime, timedelta
+
+from django.utils import timezone
+
+from treatment_process.models import (
+    StageBatchProcessExecution,
+    StageBatchProcessEquipmentExecution,
 )
 
 
@@ -656,16 +1190,35 @@ class StageExecutionService:
     Executes all processes of a StageBatch sequentially.
 
     Main rules:
+
     1. Processes execute according to their sequence.
+
     2. Process.equipments defines which equipment the process uses.
-    3. Equipment.current_state determines the next operation.
-       OFF -> ON
-       ON  -> OFF
-    4. Equipment.duration_seconds determines whether the equipment
-       requires timing.
-    5. Equipment without duration works as normal ON/OFF equipment.
-    6. Equipment with duration is treated as timing-enabled.
-    7. Equipment is NOT automatically turned OFF by a timer.
+
+    3. Equipment.current_state determines the next operation:
+           OFF -> ON
+           ON  -> OFF
+
+    4. Equipment.duration_seconds determines whether the
+       equipment requires timing.
+
+    5. Equipment without duration works immediately.
+
+    6. Equipment with duration waits until the configured
+       duration has completed before turning OFF.
+
+    7. Every process/equipment combination is recorded in:
+           StageBatchProcessEquipmentExecution
+
+    8. Equipment.current_state represents the current/global
+       equipment state.
+
+    9. The equipment execution record represents the state
+       produced by that specific process.
+
+    10. At the end of the complete stage:
+            current_state = OFF
+            status = INACTIVE
     """
 
     def __init__(self, stage_batch):
@@ -676,6 +1229,7 @@ class StageExecutionService:
     # =========================================================
 
     def execute(self):
+
         try:
 
             # -------------------------------------------------
@@ -688,9 +1242,15 @@ class StageExecutionService:
                     stage_batch=self.stage_batch,
                     status="PENDING",
                 )
-                .select_related("process")
-                .prefetch_related("process__equipments")
-                .order_by("process__sequence")
+                .select_related(
+                    "process",
+                )
+                .prefetch_related(
+                    "process__equipments",
+                )
+                .order_by(
+                    "process__sequence",
+                )
             )
 
             # -------------------------------------------------
@@ -698,7 +1258,10 @@ class StageExecutionService:
             # -------------------------------------------------
 
             for process_execution in process_executions:
-                self.execute_process(process_execution)
+
+                self.execute_process(
+                    process_execution
+                )
 
             # -------------------------------------------------
             # All processes completed.
@@ -707,11 +1270,7 @@ class StageExecutionService:
             self.stage_batch.complete_batch()
 
             # -------------------------------------------------
-            # After the complete stage:
-            #
-            # All stage equipment becomes:
-            #     current_state = OFF
-            #     status = INACTIVE
+            # Final safety state.
             # -------------------------------------------------
 
             self.deactivate_stage_equipment()
@@ -727,7 +1286,7 @@ class StageExecutionService:
             self.stage_batch.fail_batch()
 
             # -------------------------------------------------
-            # Safety state.
+            # Final safety state.
             # -------------------------------------------------
 
             self.deactivate_stage_equipment()
@@ -751,21 +1310,32 @@ class StageExecutionService:
         try:
 
             # -------------------------------------------------
-            # Process equipment comes ONLY from:
+            # Get equipment configured for this process.
             #
-            #     TreatmentProcess.equipments
+            # IMPORTANT:
             #
-            # We do not use stage.equipments here.
-            # -----------------------------------------------------
+            # We use TreatmentProcess.equipments.
+            #
+            # We do NOT use stage.equipments here.
+            # -------------------------------------------------
 
             equipments = list(
                 process.equipments
-                .filter(is_active=True)
-                .select_related("equipment_type")
+                .filter(
+                    is_active=True,
+                )
+                .select_related(
+                    "equipment_type",
+                )
                 .all()
             )
 
+            # -------------------------------------------------
+            # Every process must have equipment.
+            # -------------------------------------------------
+
             if not equipments:
+
                 raise ValueError(
                     f"No equipment configured for process "
                     f"'{process.name}'."
@@ -776,7 +1346,11 @@ class StageExecutionService:
             # -------------------------------------------------
 
             for equipment in equipments:
-                self.execute_equipment(equipment)
+
+                self.execute_equipment(
+                    process_execution,
+                    equipment,
+                )
 
             # -------------------------------------------------
             # Process completed.
@@ -785,6 +1359,10 @@ class StageExecutionService:
             process_execution.complete_process()
 
         except Exception as exc:
+
+            # -------------------------------------------------
+            # Process failed.
+            # -------------------------------------------------
 
             process_execution.fail_process(
                 remarks=str(exc)
@@ -796,13 +1374,18 @@ class StageExecutionService:
     # EXECUTE EQUIPMENT
     # =========================================================
 
-    def execute_equipment(self, equipment):
+    def execute_equipment(
+        self,
+        process_execution,
+        equipment,
+    ):
 
         # -----------------------------------------------------
         # Validate equipment.
         # -----------------------------------------------------
 
         if not equipment.is_active:
+
             raise ValueError(
                 f"Equipment '{equipment.name}' is inactive."
             )
@@ -811,38 +1394,93 @@ class StageExecutionService:
             "FAULT",
             "MAINTENANCE",
         ]:
+
             raise ValueError(
                 f"Equipment '{equipment.name}' is "
                 f"{equipment.status}."
             )
 
-        # =====================================================
-        # CASE 1: EQUIPMENT IS CURRENTLY OFF
-        # =====================================================
+        # -----------------------------------------------------
+        # Create equipment execution record.
+        #
+        # This record belongs specifically to this process.
+        # -----------------------------------------------------
 
-        if equipment.current_state == "OFF":
-
-            self.turn_equipment_on(equipment)
-
-        # =====================================================
-        # CASE 2: EQUIPMENT IS CURRENTLY ON
-        # =====================================================
-
-        elif equipment.current_state == "ON":
-
-            self.turn_equipment_off(equipment)
-
-        # =====================================================
-        # INVALID STATE
-        # =====================================================
-
-        else:
-
-            raise ValueError(
-                f"Invalid current state "
-                f"'{equipment.current_state}' for equipment "
-                f"'{equipment.name}'."
+        equipment_execution = (
+            StageBatchProcessEquipmentExecution.objects.create(
+                stage_batch_process_execution=process_execution,
+                equipment=equipment,
+                state=None,
             )
+        )
+
+        # -----------------------------------------------------
+        # Mark equipment execution as started.
+        # -----------------------------------------------------
+
+        equipment_execution.start_execution()
+
+        try:
+
+            # =================================================
+            # EQUIPMENT CURRENTLY OFF
+            # =================================================
+
+            if equipment.current_state == "OFF":
+
+                self.turn_equipment_on(
+                    equipment
+                )
+
+            # =================================================
+            # EQUIPMENT CURRENTLY ON
+            # =================================================
+
+            elif equipment.current_state == "ON":
+
+                self.turn_equipment_off(
+                    equipment
+                )
+
+            # =================================================
+            # INVALID STATE
+            # =================================================
+
+            else:
+
+                raise ValueError(
+                    f"Invalid current state "
+                    f"'{equipment.current_state}' for equipment "
+                    f"'{equipment.name}'."
+                )
+
+            # -------------------------------------------------
+            # IMPORTANT:
+            #
+            # After the equipment operation has completed,
+            # read the actual current state.
+            #
+            # Example:
+            #
+            # OFF -> ON
+            #     => store ON
+            #
+            # ON -> OFF
+            #     => store OFF
+            # -------------------------------------------------
+
+            equipment_execution.complete_execution(
+                state=equipment.current_state
+            )
+
+        except Exception:
+
+            # -------------------------------------------------
+            # We intentionally do not mark the equipment
+            # execution as completed if the operation fails.
+            # -------------------------------------------------
+
+            raise
 
     # =========================================================
     # TURN EQUIPMENT ON
@@ -851,33 +1489,28 @@ class StageExecutionService:
     def turn_equipment_on(self, equipment):
 
         # -----------------------------------------------------
-        # Change equipment state.
+        # Change equipment state to ON.
         # -----------------------------------------------------
 
         equipment.current_state = "ON"
 
         # -----------------------------------------------------
-        # Check whether this equipment requires timing.
-        #
-        # duration_seconds = NULL
-        #     -> normal equipment
-        #
-        # duration_seconds has value
-        #     -> timing-enabled equipment
+        # Timing-enabled equipment.
         # -----------------------------------------------------
 
         if equipment.duration_seconds is not None:
 
             # -------------------------------------------------
-            # Timing-enabled equipment.
-            #
-            # For now we only record that the timing operation
-            # has started.
-            #
-            # Detailed timing/wait logic will be added later.
+            # Record ON start time.
             # -------------------------------------------------
 
             equipment.start_time = timezone.now().time()
+
+            # -------------------------------------------------
+            # Clear previous end time.
+            # -------------------------------------------------
+
+            equipment.end_time = None
 
             print(
                 f"Equipment ON with timing: "
@@ -888,9 +1521,7 @@ class StageExecutionService:
         else:
 
             # -------------------------------------------------
-            # Normal equipment.
-            #
-            # No timing is required.
+            # No timing.
             # -------------------------------------------------
 
             print(
@@ -898,10 +1529,15 @@ class StageExecutionService:
                 f"{equipment.name}"
             )
 
+        # -----------------------------------------------------
+        # Save equipment.
+        # -----------------------------------------------------
+
         equipment.save(
             update_fields=[
                 "current_state",
                 "start_time",
+                "end_time",
                 "updated_at",
             ]
         )
@@ -912,55 +1548,218 @@ class StageExecutionService:
 
     def turn_equipment_off(self, equipment):
 
-        # -----------------------------------------------------
-        # Check whether this equipment has timing configured.
-        # -----------------------------------------------------
+        # =====================================================
+        # NO TIMING
+        # =====================================================
 
-        if equipment.duration_seconds is not None:
-
-            # -------------------------------------------------
-            # IMPORTANT:
-            #
-            # Do NOT automatically turn OFF using a timer.
-            #
-            # Detailed check:
-            #
-            #     Has duration completed?
-            #
-            # will be added here.
-            #
-            # If not completed:
-            #     wait
-            #
-            # If completed:
-            #     turn OFF
-            # -------------------------------------------------
-
-            print(
-                f"Equipment OFF requested with timing: "
-                f"{equipment.name}"
-            )
-
-        else:
-
-            # -------------------------------------------------
-            # No duration configured.
-            #
-            # Turn OFF immediately.
-            # -------------------------------------------------
+        if equipment.duration_seconds is None:
 
             print(
                 f"Equipment OFF without timing: "
                 f"{equipment.name}"
             )
 
+            equipment.current_state = "OFF"
+
+            equipment.end_time = (
+                timezone.now().time()
+            )
+
+            equipment.save(
+                update_fields=[
+                    "current_state",
+                    "end_time",
+                    "updated_at",
+                ]
+            )
+
+            return
+
+        # =====================================================
+        # TIMING ENABLED
+        # =====================================================
+
+        print(
+            f"Equipment OFF requested with timing: "
+            f"{equipment.name} "
+            f"({equipment.duration_seconds} seconds)"
+        )
+
+        # -----------------------------------------------------
+        # Wait until configured duration is completed.
+        # -----------------------------------------------------
+
+        self.wait_for_duration(
+            equipment
+        )
+
+        # -----------------------------------------------------
+        # Duration completed.
+        # -----------------------------------------------------
+
         equipment.current_state = "OFF"
+
+        equipment.end_time = (
+            timezone.now().time()
+        )
 
         equipment.save(
             update_fields=[
                 "current_state",
+                "end_time",
                 "updated_at",
             ]
+        )
+
+        print(
+            f"Equipment OFF after duration completed: "
+            f"{equipment.name}"
+        )
+
+    # =========================================================
+    # WAIT FOR EQUIPMENT DURATION
+    # =========================================================
+
+    def wait_for_duration(self, equipment):
+
+        # -----------------------------------------------------
+        # No duration means no waiting.
+        # -----------------------------------------------------
+
+        if equipment.duration_seconds is None:
+
+            return
+
+        # -----------------------------------------------------
+        # start_time is required.
+        # -----------------------------------------------------
+
+        if equipment.start_time is None:
+
+            raise ValueError(
+                f"Equipment '{equipment.name}' has duration "
+                f"configured but start_time is missing."
+            )
+
+        duration_seconds = (
+            equipment.duration_seconds
+        )
+
+        now = timezone.now()
+
+        # -----------------------------------------------------
+        # Convert TimeField into today's datetime.
+        # -----------------------------------------------------
+
+        start_datetime = timezone.make_aware(
+            datetime.combine(
+                now.date(),
+                equipment.start_time,
+            ),
+            timezone.get_current_timezone(),
+        )
+
+        # -----------------------------------------------------
+        # Calculate elapsed time.
+        # -----------------------------------------------------
+
+        elapsed_seconds = (
+            timezone.now() - start_datetime
+        ).total_seconds()
+
+        # -----------------------------------------------------
+        # Handle midnight crossing.
+        # -----------------------------------------------------
+
+        if elapsed_seconds < 0:
+
+            start_datetime = (
+                start_datetime - timedelta(days=1)
+            )
+
+            elapsed_seconds = (
+                timezone.now() - start_datetime
+            ).total_seconds()
+
+        # -----------------------------------------------------
+        # Calculate remaining time.
+        # -----------------------------------------------------
+
+        remaining_seconds = (
+            duration_seconds - elapsed_seconds
+        )
+
+        print(
+            f"Equipment '{equipment.name}' timing check:"
+        )
+
+        print(
+            f"Required duration: "
+            f"{duration_seconds} seconds"
+        )
+
+        print(
+            f"Elapsed duration: "
+            f"{round(elapsed_seconds, 2)} seconds"
+        )
+
+        print(
+            f"Remaining duration: "
+            f"{round(max(remaining_seconds, 0), 2)} seconds"
+        )
+
+        # =====================================================
+        # ALREADY COMPLETED
+        # =====================================================
+
+        if remaining_seconds <= 0:
+
+            print(
+                f"Equipment '{equipment.name}' duration "
+                f"is already completed."
+            )
+
+            return
+
+        # =====================================================
+        # WAIT
+        # =====================================================
+
+        print(
+            f"Equipment '{equipment.name}' must remain ON "
+            f"for another "
+            f"{round(remaining_seconds, 2)} seconds."
+        )
+
+        while remaining_seconds > 0:
+
+            # -------------------------------------------------
+            # Wait in small intervals.
+            # -------------------------------------------------
+
+            sleep_seconds = min(
+                remaining_seconds,
+                0.5,
+            )
+
+            time.sleep(
+                sleep_seconds
+            )
+
+            # -------------------------------------------------
+            # Recalculate elapsed time.
+            # -------------------------------------------------
+
+            elapsed_seconds = (
+                timezone.now() - start_datetime
+            ).total_seconds()
+
+            remaining_seconds = (
+                duration_seconds - elapsed_seconds
+            )
+
+        print(
+            f"Equipment '{equipment.name}' duration completed."
         )
 
     # =========================================================
@@ -972,14 +1771,16 @@ class StageExecutionService:
         stage = self.stage_batch.stage
 
         # -----------------------------------------------------
-        # At the end of the stage:
+        # Final safety state.
         #
-        # current_state -> OFF
-        # status         -> INACTIVE
+        # All stage equipment:
+        #
+        #     current_state = OFF
+        #     status = INACTIVE
         # -----------------------------------------------------
 
         stage.equipments.filter(
-            is_active=True
+            is_active=True,
         ).update(
             current_state="OFF",
             status="INACTIVE",
