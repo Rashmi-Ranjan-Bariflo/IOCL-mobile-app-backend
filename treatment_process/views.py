@@ -1649,6 +1649,185 @@ class InletStageEquipmentView(APIView):
 
 
 
+# class TreatmentStageEquipmentListView(APIView):
+
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, stage_id):
+
+#         try:
+#             # ---------------------------------------------------------
+#             # Get treatment stage with:
+#             # 1. Active equipments
+#             # 2. Equipment type
+#             # 3. Active sensors
+#             # 4. Sensor type
+#             # ---------------------------------------------------------
+#             stage = (
+#                 TreatmentStage.objects
+#                 .filter(
+#                     id=stage_id,
+#                     user=request.user,
+#                     is_active=True,
+#                 )
+#                 .prefetch_related(
+#                     Prefetch(
+#                         "equipments",
+#                         queryset=Equipment.objects
+#                         .filter(is_active=True)
+#                         .select_related("equipment_type")
+#                         .prefetch_related(
+#                             Prefetch(
+#                                 "sensors",
+#                                 queryset=Sensor.objects
+#                                 .filter(is_active=True)
+#                                 .select_related("sensor_type")
+#                                 .order_by("name"),
+#                             )
+#                         )
+#                         .order_by("name"),
+#                     )
+#                 )
+#                 .first()
+#             )
+
+#             # ---------------------------------------------------------
+#             # Validate treatment stage
+#             # ---------------------------------------------------------
+#             if not stage:
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": "Treatment stage not found.",
+#                     },
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#             # ---------------------------------------------------------
+#             # Get latest batch created for this stage
+#             #
+#             # stage.stage_batches comes from:
+#             # StageBatch.stage = ForeignKey(
+#             #     TreatmentStage,
+#             #     related_name="stage_batches"
+#             # )
+#             #
+#             # StageBatch Meta ordering is already:
+#             # ordering = ["-created_at"]
+#             #
+#             # Therefore .first() gives the latest batch.
+#             # ---------------------------------------------------------
+#             latest_batch = stage.stage_batches.first()
+
+#             # ---------------------------------------------------------
+#             # Prepare equipment response
+#             # ---------------------------------------------------------
+#             equipment_data = []
+
+#             for equipment in stage.equipments.all():
+
+#                 sensors = []
+
+#                 # -----------------------------------------------------
+#                 # Get all active sensors linked to this equipment
+#                 # -----------------------------------------------------
+#                 for sensor in equipment.sensors.all():
+
+#                     sensors.append(
+#                         {
+#                             "id": sensor.id,
+#                             "name": sensor.name,
+#                             "code": sensor.code,
+#                             "sensor_type": {
+#                                 "id": sensor.sensor_type.id,
+#                                 "name": sensor.sensor_type.name,
+#                             },
+#                             "unit": sensor.unit,
+#                             "status": sensor.status,
+#                             "location": sensor.location,
+#                         }
+#                     )
+
+#                 # -----------------------------------------------------
+#                 # Equipment details
+#                 # -----------------------------------------------------
+#                 equipment_data.append(
+#                     {
+#                         "id": equipment.id,
+#                         "name": equipment.name,
+#                         "code": equipment.code,
+#                         "equipment_type": {
+#                             "id": equipment.equipment_type.id,
+#                             "name": equipment.equipment_type.name,
+#                         },
+#                         "description": equipment.description,
+#                         "location": equipment.location,
+#                         "manufacturer": equipment.manufacturer,
+#                         "model_number": equipment.model_number,
+#                         "serial_number": equipment.serial_number,
+#                         "status": equipment.status,
+#                         "sensors": sensors,
+#                     }
+#                 )
+
+#             # ---------------------------------------------------------
+#             # Prepare latest batch data
+#             #
+#             # If no batch has ever been created for this stage,
+#             # return None.
+#             # ---------------------------------------------------------
+#             latest_batch_data = None
+
+#             if latest_batch:
+#                 latest_batch_data = {
+#                     "id": latest_batch.id,
+#                     "batch_number": latest_batch.batch_number,
+#                     "status": latest_batch.status,
+#                     "started_at": latest_batch.started_at,
+#                     "completed_at": latest_batch.completed_at,
+#                 }
+
+#             # ---------------------------------------------------------
+#             # Final response
+#             # ---------------------------------------------------------
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "data": {
+#                         "stage": {
+#                             "id": stage.id,
+#                             "name": stage.name,
+#                             "stage_type": stage.stage_type,
+#                             "sequence": stage.sequence,
+#                         },
+
+#                         # -------------------------------------------------
+#                         # Latest batch for this stage
+#                         #
+#                         # Frontend can use latest_batch.id to call
+#                         # the stage batch status API if the batch ID
+#                         # returned by the START API is not available.
+#                         # -------------------------------------------------
+#                         "latest_batch": latest_batch_data,
+
+#                         "equipments": equipment_data,
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as e:
+
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": "Failed to fetch stage equipment.",
+#                     "error": str(e),
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
 class TreatmentStageEquipmentListView(APIView):
 
     permission_classes = [IsAuthenticated]
@@ -1656,12 +1835,10 @@ class TreatmentStageEquipmentListView(APIView):
     def get(self, request, stage_id):
 
         try:
+
             # ---------------------------------------------------------
-            # Get treatment stage with:
-            # 1. Active equipments
-            # 2. Equipment type
-            # 3. Active sensors
-            # 4. Sensor type
+            # Get treatment stage with active equipments
+            # and equipment type.
             # ---------------------------------------------------------
             stage = (
                 TreatmentStage.objects
@@ -1676,15 +1853,6 @@ class TreatmentStageEquipmentListView(APIView):
                         queryset=Equipment.objects
                         .filter(is_active=True)
                         .select_related("equipment_type")
-                        .prefetch_related(
-                            Prefetch(
-                                "sensors",
-                                queryset=Sensor.objects
-                                .filter(is_active=True)
-                                .select_related("sensor_type")
-                                .order_by("name"),
-                            )
-                        )
                         .order_by("name"),
                     )
                 )
@@ -1704,88 +1872,49 @@ class TreatmentStageEquipmentListView(APIView):
                 )
 
             # ---------------------------------------------------------
-            # Get latest batch created for this stage
-            #
-            # stage.stage_batches comes from:
-            # StageBatch.stage = ForeignKey(
-            #     TreatmentStage,
-            #     related_name="stage_batches"
-            # )
-            #
-            # StageBatch Meta ordering is already:
-            # ordering = ["-created_at"]
-            #
-            # Therefore .first() gives the latest batch.
+            # Group equipments by equipment type
             # ---------------------------------------------------------
-            latest_batch = stage.stage_batches.first()
-
-            # ---------------------------------------------------------
-            # Prepare equipment response
-            # ---------------------------------------------------------
-            equipment_data = []
+            equipment_types = {}
 
             for equipment in stage.equipments.all():
 
-                sensors = []
+                equipment_type = equipment.equipment_type
 
                 # -----------------------------------------------------
-                # Get all active sensors linked to this equipment
+                # Create equipment type entry if it does not exist
                 # -----------------------------------------------------
-                for sensor in equipment.sensors.all():
+                if equipment_type.id not in equipment_types:
 
-                    sensors.append(
-                        {
-                            "id": sensor.id,
-                            "name": sensor.name,
-                            "code": sensor.code,
-                            "sensor_type": {
-                                "id": sensor.sensor_type.id,
-                                "name": sensor.sensor_type.name,
-                            },
-                            "unit": sensor.unit,
-                            "status": sensor.status,
-                            "location": sensor.location,
-                        }
-                    )
+                    equipment_types[equipment_type.id] = {
+                        "equipment_type": {
+                            "id": equipment_type.id,
+                            "name": equipment_type.name,
+                        },
+                        "count": 0,
+                        "equipments": [],
+                    }
 
                 # -----------------------------------------------------
-                # Equipment details
+                # Increase equipment count
                 # -----------------------------------------------------
-                equipment_data.append(
+                equipment_types[equipment_type.id]["count"] += 1
+
+                # -----------------------------------------------------
+                # Add only equipment ID and name
+                # -----------------------------------------------------
+                equipment_types[equipment_type.id]["equipments"].append(
                     {
                         "id": equipment.id,
                         "name": equipment.name,
-                        "code": equipment.code,
-                        "equipment_type": {
-                            "id": equipment.equipment_type.id,
-                            "name": equipment.equipment_type.name,
-                        },
-                        "description": equipment.description,
-                        "location": equipment.location,
-                        "manufacturer": equipment.manufacturer,
-                        "model_number": equipment.model_number,
-                        "serial_number": equipment.serial_number,
-                        "status": equipment.status,
-                        "sensors": sensors,
                     }
                 )
 
             # ---------------------------------------------------------
-            # Prepare latest batch data
-            #
-            # If no batch has ever been created for this stage,
-            # return None.
+            # Convert dictionary to list
             # ---------------------------------------------------------
-            latest_batch_data = None
-
-            if latest_batch:
-                latest_batch_data = {
-                    "id": latest_batch.id,
-                    "batch_number": latest_batch.batch_number,
-                    "status": latest_batch.status,
-                    "started_at": latest_batch.started_at,
-                    "completed_at": latest_batch.completed_at,
-                }
+            equipment_type_data = list(
+                equipment_types.values()
+            )
 
             # ---------------------------------------------------------
             # Final response
@@ -1800,17 +1929,7 @@ class TreatmentStageEquipmentListView(APIView):
                             "stage_type": stage.stage_type,
                             "sequence": stage.sequence,
                         },
-
-                        # -------------------------------------------------
-                        # Latest batch for this stage
-                        #
-                        # Frontend can use latest_batch.id to call
-                        # the stage batch status API if the batch ID
-                        # returned by the START API is not available.
-                        # -------------------------------------------------
-                        "latest_batch": latest_batch_data,
-
-                        "equipments": equipment_data,
+                        "equipment_types": equipment_type_data,
                     },
                 },
                 status=status.HTTP_200_OK,
@@ -1826,7 +1945,6 @@ class TreatmentStageEquipmentListView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
 
 
 
@@ -2500,15 +2618,15 @@ class StageBatchStartView(APIView):
                 # background thread to start using incomplete data.
                 # -------------------------------------------------
 
-                transaction.on_commit(
-                    lambda batch_id=stage_batch.id: (
-                        threading.Thread(
-                            target=run_stage_batch,
-                            args=(batch_id,),
-                            daemon=True,
-                        ).start()
-                    )
-                )
+                # transaction.on_commit(
+                #     lambda batch_id=stage_batch.id: (
+                #         threading.Thread(
+                #             target=run_stage_batch,
+                #             args=(batch_id,),
+                #             daemon=True,
+                #         ).start()
+                #     )
+                # )
 
             # =====================================================
             # PREPARE IMMEDIATE RESPONSE
@@ -2596,6 +2714,379 @@ class StageBatchStartView(APIView):
             )
 
 
+
+
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from treatment_process.models import (
+    TreatmentStage,
+    StageBatch,
+    StageBatchProcessExecution,
+    StageBatchProcessEquipmentExecution,
+)
+
+from treatment_process.services.stage_controller import (
+    StageExecutionService,
+)
+
+
+
+
+class StageBatchStopView(APIView):
+    """
+    Stop automatic execution of a treatment stage.
+
+    STOP flow:
+
+        1. Find the running StageBatch.
+        2. Stop all PENDING/RUNNING process executions.
+        3. Stop all WAITING/RUNNING equipment executions.
+        4. Turn OFF every stage equipment that is currently ON.
+        5. Deactivate every stage equipment.
+        6. Mark StageBatch as STOPPED.
+
+    Important:
+        STOP does not wait for equipment duration.
+
+        If a motor is currently ON and has 30 seconds
+        remaining, STOP turns it OFF immediately.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stage_id):
+
+        try:
+
+            # =========================================================
+            # 1. GET STAGE
+            # =========================================================
+
+            stage = (
+                TreatmentStage.objects
+                .filter(
+                    id=stage_id,
+                    user=request.user,
+                    is_active=True,
+                )
+                .prefetch_related("equipments")
+                .first()
+            )
+
+            if not stage:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Treatment stage not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # =========================================================
+            # 2. GET RUNNING STAGE BATCH
+            # =========================================================
+
+            stage_batch = (
+                StageBatch.objects
+                .filter(
+                    stage=stage,
+                    status="RUNNING",
+                )
+                .first()
+            )
+
+            if not stage_batch:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "No running batch found "
+                            "for this treatment stage."
+                        ),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # =========================================================
+            # 3. LOCK BATCH
+            # =========================================================
+
+            with transaction.atomic():
+
+                stage_batch = (
+                    StageBatch.objects
+                    .select_for_update()
+                    .get(
+                        id=stage_batch.id,
+                    )
+                )
+
+                # -----------------------------------------------------
+                # Check again after acquiring the lock.
+                # -----------------------------------------------------
+
+                if stage_batch.status != "RUNNING":
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "Stage is no longer running."
+                            ),
+                            "status": stage_batch.status,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # =====================================================
+                # 4. STOP PROCESS EXECUTIONS
+                # =====================================================
+                #
+                # PENDING processes must NEVER execute after STOP.
+                #
+                # RUNNING processes are stopped.
+                #
+                # COMPLETED processes remain COMPLETED.
+                # FAILED processes remain FAILED.
+                # STOPPED processes remain STOPPED.
+                # =====================================================
+
+                process_executions = (
+                    StageBatchProcessExecution.objects
+                    .filter(
+                        stage_batch=stage_batch,
+                        status__in=[
+                            "PENDING",
+                            "STARTED",
+                            "RUNNING",
+                        ],
+                    )
+                )
+
+                process_count = process_executions.count()
+
+                for process_execution in process_executions:
+
+                    process_execution.status = "STOPPED"
+                    process_execution.completed_at = timezone.now()
+
+                    if process_execution.started_at:
+
+                        process_execution.actual_duration_seconds = int(
+                            (
+                                process_execution.completed_at
+                                - process_execution.started_at
+                            ).total_seconds()
+                        )
+
+                    process_execution.save(
+                        update_fields=[
+                            "status",
+                            "completed_at",
+                            "actual_duration_seconds",
+                            "updated_at",
+                        ]
+                    )
+
+                # =====================================================
+                # 5. STOP EQUIPMENT EXECUTIONS
+                # =====================================================
+                #
+                # This includes:
+                #
+                # PENDING
+                # RUNNING
+                # WAITING
+                #
+                # The WAITING execution is especially important.
+                #
+                # Example:
+                #
+                # Pump Motor
+                #     ON
+                #     ↓
+                # WAITING until 08:35:06
+                #
+                # User presses STOP at 08:34:30
+                #
+                # The waiting execution must NOT resume at 08:35:06.
+                # =====================================================
+
+                equipment_executions = (
+                    StageBatchProcessEquipmentExecution.objects
+                    .filter(
+                        stage_batch_process_execution__stage_batch=(
+                            stage_batch
+                        ),
+                        status__in=[
+                            "PENDING",
+                            "STARTED",
+                            "RUNNING",
+                            "WAITING",
+                        ],
+                    )
+                )
+
+                equipment_execution_count = (
+                    equipment_executions.count()
+                )
+
+                for equipment_execution in equipment_executions:
+
+                    equipment_execution.status = "STOPPED"
+                    equipment_execution.completed_at = timezone.now()
+
+                    if equipment_execution.started_at:
+
+                        equipment_execution.duration_seconds = int(
+                            (
+                                equipment_execution.completed_at
+                                - equipment_execution.started_at
+                            ).total_seconds()
+                        )
+
+                    equipment_execution.save(
+                        update_fields=[
+                            "status",
+                            "completed_at",
+                            "duration_seconds",
+                            "updated_at",
+                        ]
+                    )
+
+                # =====================================================
+                # 6. STOP THE STAGE BATCH
+                # =====================================================
+                #
+                # This is done BEFORE returning to the worker.
+                #
+                # The worker checks:
+                #
+                #     status == RUNNING
+                #
+                # Therefore STOPPED means the worker will not continue
+                # this stage.
+                # =====================================================
+
+                stage_batch.stop_batch()
+
+            # =========================================================
+            # 7. TURN OFF ALL CURRENTLY ON EQUIPMENT
+            # =========================================================
+            #
+            # IMPORTANT:
+            #
+            # We do NOT use the normal duration logic here.
+            #
+            # STOP means immediate shutdown.
+            #
+            # Example:
+            #
+            # Pump Motor
+            #     ON
+            #     remaining duration = 20 seconds
+            #
+            # STOP
+            #     ↓
+            # Pump Motor OFF immediately
+            # =========================================================
+
+            stage_equipments = list(
+                stage.equipments
+                .filter(
+                    is_active=True,
+                )
+                .all()
+            )
+
+            service = StageExecutionService(stage_batch)
+
+            turned_off_equipment = []
+
+            for equipment in stage_equipments:
+
+                # -----------------------------------------------------
+                # Only turn OFF equipment that is actually ON.
+                # -----------------------------------------------------
+
+                if equipment.current_state == "ON":
+
+                    service.turn_equipment_off(
+                        equipment
+                    )
+
+                    turned_off_equipment.append(
+                        {
+                            "id": equipment.id,
+                            "name": equipment.name,
+                            "code": equipment.code,
+                        }
+                    )
+
+            # =========================================================
+            # 8. DEACTIVATE ALL STAGE EQUIPMENT
+            # =========================================================
+            #
+            # After everything is OFF:
+            #
+            #     current_state = OFF
+            #     status         = INACTIVE
+            #
+            # Your existing service already performs this final state.
+            # =========================================================
+
+            service.deactivate_stage_equipment()
+
+            # =========================================================
+            # 9. RESPONSE
+            # =========================================================
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "Treatment stage stopped successfully."
+                    ),
+                    "data": {
+                        "batch_id": stage_batch.id,
+                        "batch_number": stage_batch.batch_number,
+                        "stage_id": stage.id,
+                        "stage_name": stage.name,
+                        "status": stage_batch.status,
+                        "started_at": stage_batch.started_at,
+                        "completed_at": stage_batch.completed_at,
+                        "stopped_processes": process_count,
+                        "stopped_equipment_executions": (
+                            equipment_execution_count
+                        ),
+                        "turned_off_equipment": (
+                            turned_off_equipment
+                        ),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as exc:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Failed to stop treatment stage."
+                    ),
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 

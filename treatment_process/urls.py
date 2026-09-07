@@ -23,7 +23,8 @@ from .views import (
     InletStageEquipmentView,
     TreatmentStageEquipmentListView,
     StageBatchStartView,
-    StageBatchStatusView
+    StageBatchStatusView,
+    StageBatchStopView
 )
 
 urlpatterns = [
@@ -136,6 +137,11 @@ urlpatterns = [
         StageBatchStatusView.as_view(),
         name="stage-batch-status",
     ),
+    path(
+    "stages/<int:stage_id>/stop/",
+    StageBatchStopView.as_view(),
+    name="stage-batch-stop",
+),
 
 
 ]
