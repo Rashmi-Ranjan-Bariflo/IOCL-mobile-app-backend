@@ -443,6 +443,7 @@ class EquipmentDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+# =================================================================================================
 
 from django.utils import timezone
 from django.db import transaction
