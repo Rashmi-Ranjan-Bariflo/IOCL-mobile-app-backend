@@ -14,6 +14,8 @@ from .models import (
     StageExecutionLog,
     DosingRecord,
     ProcessExecutionLog,
+    StageBatch,
+    StageBatchProcessExecution
 )
 
 from .serializers import (
@@ -1526,3 +1528,867 @@ class InletStageEquipmentView(APIView):
                 },
             }
         )
+
+
+
+
+class TreatmentStageEquipmentListView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, stage_id):
+
+        try:
+            stage = (
+                TreatmentStage.objects
+                .filter(
+                    id=stage_id,
+                    user=request.user,
+                    is_active=True,
+                )
+                .prefetch_related(
+                    Prefetch(
+                        "equipments",
+                        queryset=Equipment.objects
+                        .filter(is_active=True)
+                        .select_related("equipment_type")
+                        .prefetch_related(
+                            Prefetch(
+                                "sensors",
+                                queryset=Sensor.objects
+                                .filter(is_active=True)
+                                .select_related("sensor_type")
+                                .order_by("name"),
+                            )
+                        )
+                        .order_by("name"),
+                    )
+                )
+                .first()
+            )
+
+            if not stage:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Treatment stage not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            equipment_data = []
+
+            for equipment in stage.equipments.all():
+
+                sensors = []
+
+                for sensor in equipment.sensors.all():
+                    sensors.append(
+                        {
+                            "id": sensor.id,
+                            "name": sensor.name,
+                            "code": sensor.code,
+                            "sensor_type": {
+                                "id": sensor.sensor_type.id,
+                                "name": sensor.sensor_type.name,
+                            },
+                            "unit": sensor.unit,
+                            "status": sensor.status,
+                            "location": sensor.location,
+                        }
+                    )
+
+                equipment_data.append(
+                    {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": {
+                            "id": equipment.equipment_type.id,
+                            "name": equipment.equipment_type.name,
+                        },
+                        "description": equipment.description,
+                        "location": equipment.location,
+                        "manufacturer": equipment.manufacturer,
+                        "model_number": equipment.model_number,
+                        "serial_number": equipment.serial_number,
+                        "status": equipment.status,
+                        "sensors": sensors,
+                    }
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "data": {
+                        "stage": {
+                            "id": stage.id,
+                            "name": stage.name,
+                            "stage_type": stage.stage_type,
+                            "sequence": stage.sequence,
+                        },
+                        "equipments": equipment_data,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Failed to fetch stage equipment.",
+                    "error": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+
+
+# class StageBatchStartView(APIView):
+
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request, stage_id):
+
+#         try:
+
+#             with transaction.atomic():
+
+#                 # --------------------------------------------------
+#                 # 1. Get the selected stage
+#                 # --------------------------------------------------
+#                 stage = (
+#                     TreatmentStage.objects
+#                     .filter(
+#                         id=stage_id,
+#                         user=request.user,
+#                         is_active=True,
+#                     )
+#                     .prefetch_related(
+#                         "equipments",
+#                         "processes",
+#                     )
+#                     .first()
+#                 )
+
+#                 if not stage:
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": "Treatment stage not found.",
+#                         },
+#                         status=status.HTTP_404_NOT_FOUND,
+#                     )
+
+#                 # --------------------------------------------------
+#                 # 2. Check whether this stage is already running
+#                 # --------------------------------------------------
+#                 running_batch = StageBatch.objects.filter(
+#                     stage=stage,
+#                     status="RUNNING",
+#                 ).first()
+
+#                 if running_batch:
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 "This treatment stage already has "
+#                                 "a running batch."
+#                             ),
+#                             "batch_number": running_batch.batch_number,
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 # --------------------------------------------------
+#                 # 3. Get active processes for this stage
+#                 # --------------------------------------------------
+#                 processes = list(
+#                     stage.processes
+#                     .filter(is_active=True)
+#                     .order_by("sequence")
+#                 )
+
+#                 if not processes:
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 "No active processes are configured "
+#                                 "for this treatment stage."
+#                             ),
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 # --------------------------------------------------
+#                 # 4. Create unique stage batch number
+#                 # --------------------------------------------------
+#                 last_batch = (
+#                     StageBatch.objects
+#                     .filter(batch_number__startswith="STAGE-")
+#                     .order_by("-id")
+#                     .first()
+#                 )
+
+#                 if last_batch:
+#                     try:
+#                         last_number = int(
+#                             last_batch.batch_number.split("-")[-1]
+#                         )
+#                     except (ValueError, IndexError):
+#                         last_number = 0
+#                 else:
+#                     last_number = 0
+
+#                 batch_number = f"STAGE-{last_number + 1:06d}"
+
+#                 # --------------------------------------------------
+#                 # 5. Create StageBatch
+#                 # --------------------------------------------------
+#                 stage_batch = StageBatch.objects.create(
+#                     batch_number=batch_number,
+#                     stage=stage,
+#                     status="PENDING",
+#                 )
+
+#                 # --------------------------------------------------
+#                 # 6. Activate all equipment required by this stage
+#                 #
+#                 # ACTIVE = equipment is enabled/available
+#                 # OFF    = equipment is not physically running
+#                 #
+#                 # We do NOT turn equipment ON here because MQTT /
+#                 # hardware communication is not implemented yet.
+#                 # --------------------------------------------------
+#                 equipments = stage.equipments.filter(
+#                     is_active=True
+#                 )
+
+#                 for equipment in equipments:
+
+#                     equipment.status = "ACTIVE"
+#                     equipment.current_state = "OFF"
+
+#                     equipment.save(
+#                         update_fields=[
+#                             "status",
+#                             "current_state",
+#                             "updated_at",
+#                         ]
+#                     )
+
+#                 # --------------------------------------------------
+#                 # 7. Create process execution records
+#                 # --------------------------------------------------
+#                 process_executions = []
+
+#                 for process in processes:
+
+#                     execution = StageBatchProcessExecution.objects.create(
+#                         stage_batch=stage_batch,
+#                         process=process,
+#                         status="PENDING",
+#                     )
+
+#                     process_executions.append(execution)
+
+#                 # --------------------------------------------------
+#                 # 8. Start the batch
+#                 # --------------------------------------------------
+#                 stage_batch.start_batch()
+
+#                 # --------------------------------------------------
+#                 # 9. Prepare response
+#                 # --------------------------------------------------
+#                 process_data = []
+
+#                 for execution in process_executions:
+
+#                     process_data.append(
+#                         {
+#                             "id": execution.id,
+#                             "process_id": execution.process.id,
+#                             "process_name": execution.process.name,
+#                             "sequence": execution.process.sequence,
+#                             "status": execution.status,
+#                             "duration_seconds": (
+#                                 execution.process.duration_seconds
+#                             ),
+#                         }
+#                     )
+
+#                 equipment_data = []
+
+#                 for equipment in equipments:
+
+#                     equipment_data.append(
+#                         {
+#                             "id": equipment.id,
+#                             "name": equipment.name,
+#                             "code": equipment.code,
+#                             "status": equipment.status,
+#                             "current_state": equipment.current_state,
+#                         }
+#                     )
+
+#                 return Response(
+#                     {
+#                         "success": True,
+#                         "message": (
+#                             "Stage batch started successfully."
+#                         ),
+#                         "data": {
+#                             "batch": {
+#                                 "id": stage_batch.id,
+#                                 "batch_number": stage_batch.batch_number,
+#                                 "stage_id": stage.id,
+#                                 "stage_name": stage.name,
+#                                 "status": stage_batch.status,
+#                                 "started_at": stage_batch.started_at,
+#                             },
+#                             "equipments": equipment_data,
+#                             "processes": process_data,
+#                         },
+#                     },
+#                     status=status.HTTP_201_CREATED,
+#                 )
+
+#         except Exception as e:
+
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": "Failed to start stage batch.",
+#                     "error": str(e),
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+
+
+
+from django.db import transaction
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from treatment_process.models import (
+    TreatmentStage,
+    TreatmentProcess,
+    StageBatch,
+    StageBatchProcessExecution,
+)
+from equipment.models import Equipment
+
+
+from django.db import transaction
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from treatment_process.models import (
+    TreatmentStage,
+    TreatmentProcess,
+    StageBatch,
+    StageBatchProcessExecution,
+)
+from equipment.models import Equipment
+from treatment_process.services.stage_controller import (
+    StageExecutionService,
+)
+
+
+from django.db import transaction
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from treatment_process.models import (
+    TreatmentStage,
+    TreatmentProcess,
+    StageBatch,
+    StageBatchProcessExecution,
+)
+
+from equipment.models import Equipment
+
+from treatment_process.services.stage_controller import (
+    StageExecutionService,
+)
+
+
+class StageBatchStartView(APIView):
+    """
+    Start automatic execution for one treatment stage.
+
+    Stage initialization:
+
+        1. Validate stage
+        2. Get ALL equipment of the stage
+        3. Validate equipment availability
+        4. Activate ALL stage equipment
+        5. Set all equipment current state to OFF
+        6. Get processes in sequence
+        7. Validate each process's equipment
+        8. Create StageBatch
+        9. Create process execution records
+        10. Start StageBatch
+
+    Actual process execution is handled by
+    StageExecutionService.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stage_id):
+
+        try:
+
+            # =========================================================
+            # DATABASE INITIALIZATION
+            # =========================================================
+
+            with transaction.atomic():
+
+                # =====================================================
+                # 1. GET STAGE
+                # =====================================================
+
+                stage = (
+                    TreatmentStage.objects
+                    .filter(
+                        id=stage_id,
+                        user=request.user,
+                        is_active=True,
+                    )
+                    .prefetch_related("equipments")
+                    .first()
+                )
+
+                if not stage:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Treatment stage not found.",
+                        },
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                # =====================================================
+                # 2. CHECK RUNNING BATCH
+                # =====================================================
+
+                running_batch = (
+                    StageBatch.objects
+                    .filter(
+                        stage=stage,
+                        status="RUNNING",
+                    )
+                    .first()
+                )
+
+                if running_batch:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "This stage is already running.",
+                            "batch_number": running_batch.batch_number,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # =====================================================
+                # 3. GET ALL EQUIPMENT OF STAGE
+                # =====================================================
+
+                stage_equipments = list(
+                    stage.equipments
+                    .filter(is_active=True)
+                    .order_by("name")
+                )
+
+                if not stage_equipments:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "No active equipment is configured "
+                                "for this stage."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # =====================================================
+                # 4. VALIDATE STAGE EQUIPMENT
+                # =====================================================
+
+                unavailable_equipment = []
+
+                for equipment in stage_equipments:
+
+                    if equipment.status in [
+                        "MAINTENANCE",
+                        "FAULT",
+                    ]:
+
+                        unavailable_equipment.append(
+                            {
+                                "id": equipment.id,
+                                "name": equipment.name,
+                                "status": equipment.status,
+                            }
+                        )
+
+                if unavailable_equipment:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "Some equipment cannot be activated."
+                            ),
+                            "equipment": unavailable_equipment,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # =====================================================
+                # 5. ACTIVATE ALL STAGE EQUIPMENT
+                #
+                # This is only the INITIAL stage state.
+                #
+                # status        = ACTIVE
+                # current_state = OFF
+                #
+                # The service will change current_state during
+                # process execution.
+                # =====================================================
+
+                Equipment.objects.filter(
+                    id__in=[
+                        equipment.id
+                        for equipment in stage_equipments
+                    ]
+                ).update(
+                    status="ACTIVE",
+                    current_state="OFF",
+                )
+
+                # =====================================================
+                # 6. GET PROCESSES
+                #
+                # Processes execute one by one according to sequence.
+                # =====================================================
+
+                processes = list(
+                    TreatmentProcess.objects
+                    .filter(
+                        stage=stage,
+                        is_active=True,
+                    )
+                    .prefetch_related("equipments")
+                    .order_by("sequence")
+                )
+
+                if not processes:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                "No active processes are configured "
+                                "for this stage."
+                            ),
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # =====================================================
+                # 7. VALIDATE PROCESS EQUIPMENT
+                #
+                # Process.equipments is the source of equipment used
+                # by that process.
+                #
+                # We do NOT require process equipment to also be
+                # present in stage.equipments.
+                # =====================================================
+
+                for process in processes:
+
+                    process_equipments = list(
+                        process.equipments.all()
+                    )
+
+                    if not process_equipments:
+
+                        return Response(
+                            {
+                                "success": False,
+                                "message": (
+                                    f"No equipment is configured "
+                                    f"for process '{process.name}'."
+                                ),
+                                "process_id": process.id,
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    for equipment in process_equipments:
+
+                        # -------------------------------------------------
+                        # Equipment must be active in master record.
+                        # -------------------------------------------------
+
+                        if not equipment.is_active:
+
+                            return Response(
+                                {
+                                    "success": False,
+                                    "message": (
+                                        f"Equipment '{equipment.name}' "
+                                        f"is inactive."
+                                    ),
+                                    "process_id": process.id,
+                                    "equipment_id": equipment.id,
+                                },
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+
+                        # -------------------------------------------------
+                        # Equipment cannot be in FAULT or MAINTENANCE.
+                        # -------------------------------------------------
+
+                        if equipment.status in [
+                            "FAULT",
+                            "MAINTENANCE",
+                        ]:
+
+                            return Response(
+                                {
+                                    "success": False,
+                                    "message": (
+                                        f"Equipment '{equipment.name}' "
+                                        f"is currently "
+                                        f"{equipment.status}."
+                                    ),
+                                    "process_id": process.id,
+                                    "equipment_id": equipment.id,
+                                },
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+
+                # =====================================================
+                # 8. CREATE STAGE BATCH
+                # =====================================================
+
+                batch_number = (
+                    f"STAGE-{stage.id}-"
+                    f"{StageBatch.objects.count() + 1:06d}"
+                )
+
+                stage_batch = StageBatch.objects.create(
+                    batch_number=batch_number,
+                    stage=stage,
+                    status="PENDING",
+                )
+
+                # =====================================================
+                # 9. CREATE PROCESS EXECUTION RECORDS
+                # =====================================================
+
+                process_executions = []
+
+                for process in processes:
+
+                    execution = (
+                        StageBatchProcessExecution.objects.create(
+                            stage_batch=stage_batch,
+                            process=process,
+                            status="PENDING",
+                        )
+                    )
+
+                    process_executions.append(
+                        execution
+                    )
+
+                # =====================================================
+                # 10. START BATCH
+                # =====================================================
+
+                stage_batch.start_batch()
+
+            # =========================================================
+            # TRANSACTION IS COMMITTED HERE
+            # =========================================================
+            #
+            # Everything above has now been saved successfully.
+            #
+            # We intentionally execute the service OUTSIDE the
+            # transaction.
+            # =========================================================
+
+            # =========================================================
+            # 11. EXECUTE STAGE
+            # =========================================================
+
+            StageExecutionService(
+                stage_batch
+            ).execute()
+
+            # =========================================================
+            # 12. REFRESH BATCH
+            #
+            # The service changes the StageBatch status.
+            # Therefore, get the latest value from database.
+            # =========================================================
+
+            stage_batch.refresh_from_db()
+
+            # =========================================================
+            # 13. REFRESH EQUIPMENT
+            #
+            # The service may have changed current_state.
+            # =========================================================
+
+            stage_equipments = list(
+                stage.equipments
+                .filter(is_active=True)
+                .select_related("equipment_type")
+                .order_by("name")
+            )
+
+            # =========================================================
+            # 14. GET UPDATED PROCESS EXECUTIONS
+            # =========================================================
+
+            process_executions = list(
+                StageBatchProcessExecution.objects
+                .filter(
+                    stage_batch=stage_batch
+                )
+                .select_related("process")
+                .prefetch_related(
+                    "process__equipments"
+                )
+                .order_by(
+                    "process__sequence"
+                )
+            )
+
+            # =========================================================
+            # 15. RESPONSE
+            # =========================================================
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "Treatment stage executed successfully."
+                    ),
+                    "data": {
+                        "batch_id": stage_batch.id,
+                        "batch_number": stage_batch.batch_number,
+                        "stage_id": stage.id,
+                        "stage_name": stage.name,
+                        "status": stage_batch.status,
+
+                        "equipment": [
+                            {
+                                "id": equipment.id,
+                                "name": equipment.name,
+                                "code": equipment.code,
+                                "equipment_type": (
+                                    equipment.equipment_type.name
+                                ),
+                                "status": equipment.status,
+                                "current_state": (
+                                    equipment.current_state
+                                ),
+                                "start_time": equipment.start_time,
+                                "end_time": equipment.end_time,
+                                "duration_seconds": (
+                                    equipment.duration_seconds
+                                ),
+                            }
+                            for equipment in stage_equipments
+                        ],
+
+                        "processes": [
+                            {
+                                "execution_id": execution.id,
+                                "process_id": execution.process.id,
+                                "process_name": (
+                                    execution.process.name
+                                ),
+                                "sequence": (
+                                    execution.process.sequence
+                                ),
+                                "status": execution.status,
+
+                                "equipment": [
+                                    {
+                                        "id": equipment.id,
+                                        "name": equipment.name,
+                                        "code": equipment.code,
+                                        "equipment_type": (
+                                            equipment
+                                            .equipment_type
+                                            .name
+                                        ),
+                                        "current_state": (
+                                            equipment.current_state
+                                        ),
+                                        "start_time": (
+                                            equipment.start_time
+                                        ),
+                                        "end_time": (
+                                            equipment.end_time
+                                        ),
+                                        "duration_seconds": (
+                                            equipment.duration_seconds
+                                        ),
+                                    }
+                                    for equipment in (
+                                        execution
+                                        .process
+                                        .equipments
+                                        .all()
+                                    )
+                                ],
+                            }
+                            for execution in process_executions
+                        ],
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Failed to execute treatment stage."
+                    ),
+                    "error": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

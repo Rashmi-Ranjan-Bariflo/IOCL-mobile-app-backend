@@ -88,6 +88,11 @@ class TreatmentProcess(models.Model):
     target_volume_liters = models.DecimalField(
         max_digits=10, decimal_places=2, blank=True, null=True
     )
+    equipments = models.ManyToManyField(
+        Equipment,
+        related_name="treatment_processes",
+        blank=True,
+    )
 
     is_active = models.BooleanField(default=True)
 
@@ -490,3 +495,315 @@ class ProcessExecutionLog(models.Model):
 
     def __str__(self):
         return f"{self.batch.batch_number} - " f"{self.process.name}"
+
+
+
+
+
+# ==========================================================
+# STAGE BATCH
+# ==========================================================
+class StageBatch(models.Model):
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("RUNNING", "Running"),
+        ("COMPLETED", "Completed"),
+        ("FAILED", "Failed"),
+        ("STOPPED", "Stopped"),
+    ]
+
+    batch_number = models.CharField(
+        max_length=50,
+        unique=True
+    )
+
+    stage = models.ForeignKey(
+        TreatmentStage,
+        on_delete=models.PROTECT,
+        related_name="stage_batches"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING"
+    )
+
+    started_at = models.DateTimeField(
+        blank=True,
+        null=True
+    )
+
+    completed_at = models.DateTimeField(
+        blank=True,
+        null=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        db_table = "stage_batches"
+        ordering = ["-created_at"]
+
+        indexes = [
+            models.Index(
+                fields=["stage", "status"],
+                name="stage_batch_stage_status_idx"
+            ),
+            models.Index(
+                fields=["status"],
+                name="stage_batch_status_idx"
+            ),
+        ]
+
+    def start_batch(self):
+        """
+        Start stage batch.
+        """
+        self.status = "RUNNING"
+        self.started_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "updated_at",
+            ]
+        )
+
+    def complete_batch(self):
+        """
+        Complete stage batch.
+        """
+        self.status = "COMPLETED"
+        self.completed_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+    def stop_batch(self):
+        """
+        Stop stage batch.
+        """
+        self.status = "STOPPED"
+        self.completed_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+    def fail_batch(self):
+        """
+        Mark stage batch as failed.
+        """
+        self.status = "FAILED"
+        self.completed_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "updated_at",
+            ]
+        )
+
+    def __str__(self):
+        return self.batch_number
+
+
+
+
+# ==========================================================
+# STAGE BATCH PROCESS EXECUTION
+# ==========================================================
+class StageBatchProcessExecution(models.Model):
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pending"),
+        ("STARTED", "Started"),
+        ("RUNNING", "Running"),
+        ("COMPLETED", "Completed"),
+        ("FAILED", "Failed"),
+        ("STOPPED", "Stopped"),
+    ]
+
+    stage_batch = models.ForeignKey(
+        StageBatch,
+        on_delete=models.CASCADE,
+        related_name="process_executions",
+    )
+
+    process = models.ForeignKey(
+        TreatmentProcess,
+        on_delete=models.PROTECT,
+        related_name="stage_batch_executions",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="PENDING",
+    )
+
+    started_at = models.DateTimeField(
+        blank=True,
+        null=True,
+    )
+
+    completed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+    )
+
+    actual_duration_seconds = models.PositiveIntegerField(
+        default=0,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        null=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "stage_batch_process_executions"
+
+        ordering = [
+            "stage_batch__created_at",
+            "process__sequence",
+        ]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["stage_batch", "process"],
+                name="unique_stage_batch_process_execution",
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=["stage_batch", "process"],
+                name="stage_batch_process_idx",
+            ),
+            models.Index(
+                fields=["status"],
+                name="stage_batch_process_status_idx",
+            ),
+        ]
+
+    def start_process(self):
+        """
+        Start process execution.
+        """
+        self.status = "RUNNING"
+        self.started_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "updated_at",
+            ]
+        )
+
+    def complete_process(self):
+        """
+        Complete process execution.
+        """
+        self.status = "COMPLETED"
+        self.completed_at = timezone.now()
+
+        if self.started_at:
+            duration = (
+                self.completed_at - self.started_at
+            ).total_seconds()
+
+            self.actual_duration_seconds = int(duration)
+
+        self.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "actual_duration_seconds",
+                "updated_at",
+            ]
+        )
+
+    def stop_process(self):
+        """
+        Stop process execution.
+        """
+        self.status = "STOPPED"
+        self.completed_at = timezone.now()
+
+        if self.started_at:
+            duration = (
+                self.completed_at - self.started_at
+            ).total_seconds()
+
+            self.actual_duration_seconds = int(duration)
+
+        self.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "actual_duration_seconds",
+                "updated_at",
+            ]
+        )
+
+    def fail_process(self, remarks=None):
+        """
+        Mark process execution as failed.
+        """
+        self.status = "FAILED"
+        self.completed_at = timezone.now()
+
+        if remarks:
+            self.remarks = remarks
+
+        if self.started_at:
+            duration = (
+                self.completed_at - self.started_at
+            ).total_seconds()
+
+            self.actual_duration_seconds = int(duration)
+
+        self.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "actual_duration_seconds",
+                "remarks",
+                "updated_at",
+            ]
+        )
+
+    def __str__(self):
+        return (
+            f"{self.stage_batch.batch_number} - "
+            f"{self.process.name}"
+        )

@@ -44,6 +44,11 @@ class Equipment(models.Model):
         ("FAULT", "Fault"),
     ]
 
+    STATE_CHOICES = [
+        ("OFF", "Off"),
+        ("ON", "On"),
+    ]
+
     user = models.ForeignKey(
         "users.User",
         on_delete=models.CASCADE,
@@ -104,6 +109,11 @@ class Equipment(models.Model):
     duration_seconds = models.PositiveIntegerField(
         blank=True,
         null=True
+    )
+    current_state = models.CharField(
+        max_length=10,
+        choices=STATE_CHOICES,
+        default="OFF"
     )
     status = models.CharField(
         max_length=20,
