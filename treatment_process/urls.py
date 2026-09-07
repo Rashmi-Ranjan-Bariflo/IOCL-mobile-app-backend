@@ -21,6 +21,8 @@ from .views import (
     ProcessExecutionLogListCreateView,
     # Inlet Stage Equipment
     InletStageEquipmentView,
+    TreatmentStageEquipmentListView,
+    StageBatchStartView
 )
 
 urlpatterns = [
@@ -117,4 +119,16 @@ urlpatterns = [
         InletStageEquipmentView.as_view(),
         name="inlet-stage-equipment",
     ),
+    path(
+    "stages/<int:stage_id>/equipments/",
+    TreatmentStageEquipmentListView.as_view(),
+    name="treatment-stage-equipment-list",
+    ),
+    path(
+        "stages/<int:stage_id>/start/",
+        StageBatchStartView.as_view(),
+        name="stage-batch-start",
+    ),
+
+
 ]

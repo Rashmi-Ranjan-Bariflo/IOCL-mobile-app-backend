@@ -444,8 +444,6 @@ class EquipmentDetailView(APIView):
         )
 
 
-# equipment/views.py
-
 from django.utils import timezone
 from django.db import transaction
 from rest_framework.views import APIView
@@ -459,10 +457,10 @@ from treatment_process.models import TreatmentStage, TreatmentProcess
 from .serializers import EquipmentOnOffSerializer
 
 
+# ==========================================================
+#                        VALVE ON
+# ==========================================================
 class ValveOnView(APIView):
-    """
-    POST /equipment/valve/{equipment_id}/on/
-    """
 
     permission_classes = [IsAuthenticated]
 
@@ -472,7 +470,6 @@ class ValveOnView(APIView):
             id=equipment_id,
         )
 
-        # Validate it is a Valve
         if "valve" not in equipment.equipment_type.name.lower():
             return Response(
                 {
@@ -520,15 +517,13 @@ class ValveOnView(APIView):
                 performed_by=request.user,
             )
 
-            # Update Equipment
             equipment.status = "ACTIVE"
             equipment.is_active = True
-            equipment.start_time = now.time()  # optional
+            equipment.start_time = now.time()
             equipment.save(
                 update_fields=["status", "is_active", "start_time", "updated_at"]
             )
 
-        # Success Response
         return Response(
             {
                 "success": True,
@@ -541,19 +536,16 @@ class ValveOnView(APIView):
                     "status": "ACTIVE",
                     "start_time": log.started_at,
                     "stage": stage.name if stage else None,
-                    "performed_by": getattr(
-                        request.user, "username", str(request.user)
-                    ),
                 },
             },
             status=status.HTTP_201_CREATED,
         )
 
 
+# ==========================================================
+#                        VALVE OFF
+# ==========================================================
 class ValveOffView(APIView):
-    """
-    POST /equipment/valve/{equipment_id}/off/
-    """
 
     permission_classes = [IsAuthenticated]
 
@@ -563,7 +555,6 @@ class ValveOffView(APIView):
             id=equipment_id,
         )
 
-        # Optional: Check if it is a Valve
         if "valve" not in equipment.equipment_type.name.lower():
             return Response(
                 {
@@ -572,7 +563,6 @@ class ValveOffView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Find the latest open ON log
         open_log = (
             EquipmentManualLog.objects.filter(
                 equipment=equipment, action="ON", ended_at__isnull=True
@@ -596,11 +586,10 @@ class ValveOffView(APIView):
             open_log.duration_seconds = duration
             open_log.save(update_fields=["ended_at", "duration_seconds"])
 
-            # Update Equipment status
             equipment.status = "INACTIVE"
             equipment.is_active = False
-            equipment.end_time = now.time()  # optional
-            equipment.duration_seconds = duration  # optional
+            equipment.end_time = now.time()
+            equipment.duration_seconds = duration
             equipment.save(
                 update_fields=[
                     "status",
@@ -611,7 +600,6 @@ class ValveOffView(APIView):
                 ]
             )
 
-        # Clean Response (No stage, No performed_by)
         return Response(
             {
                 "id": open_log.id,
@@ -631,28 +619,11 @@ class ValveOffView(APIView):
         )
 
 
-# equipment/views.py
-
-# equipment/views.py
-
-# equipment/views.py
-
-from django.utils import timezone
-from django.db import transaction
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.generics import get_object_or_404
-
-from .models import Equipment, EquipmentManualLog
-from .serializers import EquipmentOnOffSerializer
-
-
+# ==========================================================
+#                        MOTOR ON
+# ==========================================================
 class MotorOnView(APIView):
-    """
-    POST /equipment/motor/{equipment_id}/on/
-    """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, equipment_id):
@@ -677,16 +648,44 @@ class MotorOnView(APIView):
         serializer.is_valid(raise_exception=True)
 
         stage_id = serializer.validated_data.get("stage_id")
-        stage = None
-        if stage_id:
-            from treatment_process.models import TreatmentStage
-            stage = get_object_or_404(TreatmentStage, id=stage_id)
+        if not stage_id:
+            return Response(
+                {"detail": "stage_id is required for Motor ON"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Check if already ON
+        stage = get_object_or_404(TreatmentStage, id=stage_id)
+
+        # ==========================================================
+        # RULE: Valve of the SAME STAGE must be ON
+        # ==========================================================
+        stage_valves = stage.equipments.filter(equipment_type__name__icontains="valve")
+
+        valve_is_on = False
+        for valve in stage_valves:
+            if EquipmentManualLog.objects.filter(
+                equipment=valve,
+                action="ON",
+                ended_at__isnull=True,
+                stage=stage,
+            ).exists():
+                valve_is_on = True
+                break
+
+        if not valve_is_on:
+            return Response(
+                {
+                    "detail": "Cannot turn Motor ON. Valve of this stage is not ON.",
+                    "stage": stage.name,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if Motor is already ON
         open_log = EquipmentManualLog.objects.filter(
             equipment=equipment,
             action="ON",
-            ended_at__isnull=True
+            ended_at__isnull=True,
         ).first()
 
         if open_log:
@@ -695,7 +694,7 @@ class MotorOnView(APIView):
                     "detail": "Motor is already ON",
                     "log_id": open_log.id,
                     "started_at": open_log.started_at,
-                    "status": "ACTIVE"
+                    "status": "ACTIVE",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -715,7 +714,7 @@ class MotorOnView(APIView):
             equipment.is_active = True
             equipment.save(update_fields=["status", "is_active", "updated_at"])
 
-            # Activate only real sensors (No Valve)
+            # Activate only sensors of this stage
             sensors = self._activate_sensor(stage, request.user)
 
         return Response(
@@ -725,31 +724,24 @@ class MotorOnView(APIView):
                     "id": equipment.id,
                     "name": equipment.name,
                     "code": equipment.code,
-                    "status": "ACTIVE"
+                    "status": "ACTIVE",
                 },
                 "action": "ON",
                 "started_at": log.started_at,
                 "ended_at": None,
                 "duration_seconds": None,
                 "status": "ACTIVE",
-                "sensors": sensors
+                "stage": stage.name,
+                "sensors": sensors,
             },
-            status=status.HTTP_201_CREATED
+            status=status.HTTP_201_CREATED,
         )
 
     def _activate_sensor(self, stage, user):
-        if not stage:
-            return []
-
-        # Only real Sensors + Strongly exclude Valve
-        sensors = stage.equipments.filter(
-            equipment_type__name__iexact="Sensor"
-        ).exclude(
-            name__icontains="valve"
-        ).exclude(
-            code__icontains="valv"
-        ).exclude(
-            equipment_type__name__icontains="valve"
+        sensors = (
+            stage.equipments.filter(equipment_type__name__iexact="Sensor")
+            .exclude(name__icontains="valve")
+            .exclude(code__icontains="valv")
         )
 
         activated = []
@@ -772,21 +764,24 @@ class MotorOnView(APIView):
             sensor.is_active = True
             sensor.save(update_fields=["status", "is_active", "updated_at"])
 
-            activated.append({
-                "id": sensor.id,
-                "name": sensor.name,
-                "code": sensor.code,
-                "status": "ACTIVE",
-                "started_at": log.started_at
-            })
+            activated.append(
+                {
+                    "id": sensor.id,
+                    "name": sensor.name,
+                    "code": sensor.code,
+                    "status": "ACTIVE",
+                    "started_at": log.started_at,
+                }
+            )
 
         return activated
 
 
+# ==========================================================
+#                        MOTOR OFF
+# ==========================================================
 class MotorOffView(APIView):
-    """
-    POST /equipment/motor/{equipment_id}/off/
-    """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, equipment_id):
@@ -810,7 +805,7 @@ class MotorOffView(APIView):
             EquipmentManualLog.objects.filter(
                 equipment=equipment,
                 action="ON",
-                ended_at__isnull=True
+                ended_at__isnull=True,
             )
             .order_by("-started_at")
             .first()
@@ -836,7 +831,7 @@ class MotorOffView(APIView):
             equipment.is_active = False
             equipment.save(update_fields=["status", "is_active", "updated_at"])
 
-            # Deactivate only real sensors (No Valve)
+            # Deactivate only sensors of this stage
             sensors = self._deactivate_sensor(stage)
 
         return Response(
@@ -846,57 +841,56 @@ class MotorOffView(APIView):
                     "id": equipment.id,
                     "name": equipment.name,
                     "code": equipment.code,
-                    "status": "INACTIVE"
+                    "status": "INACTIVE",
                 },
                 "action": "OFF",
                 "started_at": open_log.started_at,
                 "ended_at": open_log.ended_at,
                 "duration_seconds": open_log.duration_seconds,
                 "status": "INACTIVE",
-                "sensors": sensors
+                "sensors": sensors,
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
         )
 
     def _deactivate_sensor(self, stage):
         if not stage:
             return []
 
-        sensors = stage.equipments.filter(
-            equipment_type__name__iexact="Sensor"
-        ).exclude(
-            name__icontains="valve"
-        ).exclude(
-            code__icontains="valv"
-        ).exclude(
-            equipment_type__name__icontains="valve"
+        sensors = (
+            stage.equipments.filter(equipment_type__name__iexact="Sensor")
+            .exclude(name__icontains="valve")
+            .exclude(code__icontains="valv")
         )
 
         deactivated = []
 
         for sensor in sensors:
             open_log = EquipmentManualLog.objects.filter(
-                equipment=sensor,
-                ended_at__isnull=True
+                equipment=sensor, ended_at__isnull=True
             ).first()
 
             if open_log:
                 now = timezone.now()
                 open_log.ended_at = now
-                open_log.duration_seconds = int((now - open_log.started_at).total_seconds())
+                open_log.duration_seconds = int(
+                    (now - open_log.started_at).total_seconds()
+                )
                 open_log.save(update_fields=["ended_at", "duration_seconds"])
 
                 sensor.status = "INACTIVE"
                 sensor.is_active = False
                 sensor.save(update_fields=["status", "is_active", "updated_at"])
 
-                deactivated.append({
-                    "id": sensor.id,
-                    "name": sensor.name,
-                    "code": sensor.code,
-                    "status": "INACTIVE",
-                    "ended_at": open_log.ended_at,
-                    "duration_seconds": open_log.duration_seconds
-                })
+                deactivated.append(
+                    {
+                        "id": sensor.id,
+                        "name": sensor.name,
+                        "code": sensor.code,
+                        "status": "INACTIVE",
+                        "ended_at": open_log.ended_at,
+                        "duration_seconds": open_log.duration_seconds,
+                    }
+                )
 
         return deactivated

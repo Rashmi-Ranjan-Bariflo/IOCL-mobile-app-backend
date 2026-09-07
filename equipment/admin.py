@@ -36,7 +36,6 @@ class EquipmentAdmin(admin.ModelAdmin):
         "code",
         "equipment_type",
         "get_stages",  # ← Added
-        "location",
         "status",
         "is_active",
         "created_at",
