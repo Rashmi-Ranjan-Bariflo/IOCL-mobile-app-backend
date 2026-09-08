@@ -443,6 +443,7 @@ class EquipmentDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
 # =================================================================================================
 
 from django.utils import timezone
@@ -519,11 +520,8 @@ class ValveOnView(APIView):
             )
 
             equipment.status = "ACTIVE"
-            equipment.is_active = True
             equipment.start_time = now.time()
-            equipment.save(
-                update_fields=["status", "is_active", "start_time", "updated_at"]
-            )
+            equipment.save(update_fields=["status", "start_time", "updated_at"])
 
         return Response(
             {
@@ -588,17 +586,10 @@ class ValveOffView(APIView):
             open_log.save(update_fields=["ended_at", "duration_seconds"])
 
             equipment.status = "INACTIVE"
-            equipment.is_active = False
             equipment.end_time = now.time()
             equipment.duration_seconds = duration
             equipment.save(
-                update_fields=[
-                    "status",
-                    "is_active",
-                    "end_time",
-                    "duration_seconds",
-                    "updated_at",
-                ]
+                update_fields=["status", "end_time", "duration_seconds", "updated_at"]
             )
 
         return Response(
@@ -712,8 +703,7 @@ class MotorOnView(APIView):
             )
 
             equipment.status = "ACTIVE"
-            equipment.is_active = True
-            equipment.save(update_fields=["status", "is_active", "updated_at"])
+            equipment.save(update_fields=["status", "updated_at"])
 
             # Activate only sensors of this stage
             sensors = self._activate_sensor(stage, request.user)
@@ -740,9 +730,9 @@ class MotorOnView(APIView):
 
     def _activate_sensor(self, stage, user):
         sensors = (
-            stage.equipments.filter(equipment_type__name__iexact="Sensor")
+            stage.equipments.filter(equipment_type__name__icontains="sensor")
             .exclude(name__icontains="valve")
-            .exclude(code__icontains="valv")
+            .exclude(code__icontains="val")
         )
 
         activated = []
@@ -762,8 +752,7 @@ class MotorOnView(APIView):
             )
 
             sensor.status = "ACTIVE"
-            sensor.is_active = True
-            sensor.save(update_fields=["status", "is_active", "updated_at"])
+            sensor.save(update_fields=["status", "updated_at"])
 
             activated.append(
                 {
@@ -829,11 +818,10 @@ class MotorOffView(APIView):
             open_log.save(update_fields=["ended_at", "duration_seconds"])
 
             equipment.status = "INACTIVE"
-            equipment.is_active = False
-            equipment.save(update_fields=["status", "is_active", "updated_at"])
+            equipment.save(update_fields=["status", "updated_at"])
 
-            # Deactivate only sensors of this stage
-            sensors = self._deactivate_sensor(stage)
+            # Always return list (never null)
+            sensors = self._deactivate_sensor(stage) if stage else []
 
         return Response(
             {
@@ -859,9 +847,9 @@ class MotorOffView(APIView):
             return []
 
         sensors = (
-            stage.equipments.filter(equipment_type__name__iexact="Sensor")
+            stage.equipments.filter(equipment_type__name__icontains="sensor")
             .exclude(name__icontains="valve")
-            .exclude(code__icontains="valv")
+            .exclude(code__icontains="val")
         )
 
         deactivated = []
@@ -880,8 +868,7 @@ class MotorOffView(APIView):
                 open_log.save(update_fields=["ended_at", "duration_seconds"])
 
                 sensor.status = "INACTIVE"
-                sensor.is_active = False
-                sensor.save(update_fields=["status", "is_active", "updated_at"])
+                sensor.save(update_fields=["status", "updated_at"])
 
                 deactivated.append(
                     {
