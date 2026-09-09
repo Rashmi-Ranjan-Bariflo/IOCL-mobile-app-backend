@@ -895,3 +895,44 @@ class MotorOffView(APIView):
                 )
 
         return deactivated
+
+
+# ==========================================================
+#                     SENSOR LIST VIEW
+# ==========================================================
+class SensorListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        sensors = (
+            Equipment.objects.select_related("equipment_type")
+            .filter(equipment_type__name__icontains="sensor")
+            .exclude(name__icontains="valve")
+            .exclude(code__icontains="val")
+        )
+
+        stage_id = request.query_params.get("stage_id")
+        status_filter = request.query_params.get("status")
+        current_state = request.query_params.get("current_state")
+
+        if stage_id:
+            sensors = sensors.filter(treatment_stages__id=stage_id)
+
+        if status_filter:
+            sensors = sensors.filter(status=status_filter.upper())
+
+        if current_state:
+            sensors = sensors.filter(current_state=current_state.upper())
+
+        serializer = EquipmentSerializer(sensors, many=True)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Sensors retrieved successfully.",
+                "count": sensors.count(),
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
