@@ -1128,3 +1128,108 @@ class StageBatchProcessEquipmentExecution(models.Model):
             f"{self.stage_batch_process_execution} - "
             f"{self.equipment.name}"
         )
+
+
+
+
+
+class StageEquipmentConfig(models.Model):
+    """
+    Stores the approved configuration of an equipment
+    for a particular treatment stage.
+
+    This configuration is created/updated when a manual
+    equipment test is successfully merged.
+
+    Automatic stage execution uses this table as the
+    stage-specific equipment configuration.
+    """
+
+    STATE_CHOICES = [
+        ("OFF", "Off"),
+        ("ON", "On"),
+    ]
+    STATUS_CHOICES = [
+            ("ACTIVE", "Active"),
+            ("INACTIVE", "Inactive"),
+            ("MAINTENANCE", "Maintenance"),
+            ("FAULT", "Fault"),
+        ]
+
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.CASCADE,
+        related_name="stage_configurations",
+    )
+
+    stage = models.ForeignKey(
+        "treatment_process.TreatmentStage",
+        on_delete=models.CASCADE,
+        related_name="equipment_configurations",
+    )
+
+    duration_seconds = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+    )
+
+    current_state = models.CharField(
+        max_length=10,
+        choices=STATE_CHOICES,
+        default="OFF",
+    )
+    status = models.CharField(
+            max_length=20,
+            choices=STATUS_CHOICES,
+            default="ACTIVE",
+        )
+    start_time = models.TimeField(
+            blank=True,
+            null=True
+        )
+    
+    end_time = models.TimeField(
+        blank=True,
+        null=True
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        db_table = "stage_equipment_configs"
+
+        ordering = ["created_at"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["stage", "equipment"],
+                name="unique_stage_equipment_config",
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=["stage", "equipment"],
+                name="stage_equipment_config_idx",
+            ),
+            models.Index(
+                fields=["stage", "is_active"],
+                name="stage_equipment_active_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.stage.name} - "
+            f"{self.equipment.name}"
+        )

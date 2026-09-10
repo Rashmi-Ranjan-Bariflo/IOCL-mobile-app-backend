@@ -1858,6 +1858,7 @@ class TreatmentStageEquipmentListView(APIView):
                 )
                 .first()
             )
+            print(stage)
 
             # ---------------------------------------------------------
             # Validate treatment stage
@@ -1947,6 +1948,125 @@ class TreatmentStageEquipmentListView(APIView):
             )
 
 
+
+
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+
+from treatment_process.models import (
+    TreatmentStage,
+    StageBatchProcessExecution,
+)
+
+
+class StageProcessLogListView(APIView):
+    """
+    Get the latest 50 process execution logs
+    for a specific treatment stage.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, stage_id):
+
+        try:
+
+            # ---------------------------------------------------------
+            # Validate stage
+            # ---------------------------------------------------------
+            stage = TreatmentStage.objects.filter(
+                id=stage_id,
+                user=request.user,
+                is_active=True,
+            ).first()
+
+            if not stage:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Treatment stage not found.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # ---------------------------------------------------------
+            # Get latest 50 process executions
+            # belonging to this stage
+            # ---------------------------------------------------------
+            process_logs = (
+                StageBatchProcessExecution.objects
+                .filter(
+                    stage_batch__stage=stage,
+                )
+                .select_related(
+                    "stage_batch",
+                    "process",
+                )
+                .order_by("-created_at")[:50]
+            )
+
+            data = []
+
+            for log in process_logs:
+
+                data.append(
+                    {
+                        "id": log.id,
+
+                        "batch_id": log.stage_batch.id,
+
+                        "batch_number": (
+                            log.stage_batch.batch_number
+                        ),
+
+                        "process_id": log.process.id,
+
+                        "process_name": log.process.name,
+
+                        "sequence": log.process.sequence,
+
+                        "status": log.status,
+
+                        "started_at": log.started_at,
+
+                        "completed_at": log.completed_at,
+
+                        "actual_duration_seconds": (
+                            log.actual_duration_seconds
+                        ),
+
+                        "remarks": log.remarks,
+                    }
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": (
+                        "Stage process logs "
+                        "retrieved successfully."
+                    ),
+                    "count": len(data),
+                    "data": data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Failed to retrieve "
+                        "stage process logs."
+                    ),
+                    "error": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 # class StageBatchStartView(APIView):
 
@@ -2249,19 +2369,530 @@ from treatment_process.services.stage_execution_runner import (
 )
 
 
+# class StageBatchStartView(APIView):
+#     """
+#     Start automatic execution of a TreatmentStage.
+
+#     Important:
+
+#     The API does NOT execute the complete stage directly.
+
+#     It creates the StageBatch and process execution records,
+#     then starts the actual execution in a background thread.
+
+#     Therefore the API returns immediately while the stage continues
+#     running in the background.
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request, stage_id):
+
+#         try:
+
+#             # =====================================================
+#             # GET STAGE
+#             # =====================================================
+
+#             try:
+
+#                 stage = (
+#                     TreatmentStage.objects
+#                     .prefetch_related(
+#                         "equipments",
+#                         "processes__equipments",
+#                     )
+#                     .get(
+#                         id=stage_id,
+#                         user=request.user,
+#                     )
+#                 )
+
+#             except TreatmentStage.DoesNotExist:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": "Treatment stage not found.",
+#                     },
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#             # =====================================================
+#             # CHECK STAGE ACTIVE
+#             # =====================================================
+
+#             if not stage.is_active:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": "Treatment stage is inactive.",
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # =====================================================
+#             # CHECK WHETHER THIS STAGE IS ALREADY RUNNING
+#             # =====================================================
+
+#             running_batch = (
+#                 StageBatch.objects
+#                 .filter(
+#                     stage=stage,
+#                     status="RUNNING",
+#                 )
+#                 .first()
+#             )
+
+#             if running_batch:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": (
+#                             "This treatment stage is already running."
+#                         ),
+#                         "batch_id": running_batch.id,
+#                         "batch_number": running_batch.batch_number,
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # =====================================================
+#             # GET STAGE EQUIPMENT
+#             # =====================================================
+
+#             stage_equipments = list(
+#                 stage.equipments
+#                 .filter(
+#                     is_active=True,
+#                 )
+#                 .select_related(
+#                     "equipment_type",
+#                 )
+#                 .all()
+#             )
+
+#             if not stage_equipments:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": (
+#                             "No active equipment is configured "
+#                             "for this stage."
+#                         ),
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # =====================================================
+#             # VALIDATE STAGE EQUIPMENT
+#             # =====================================================
+
+#             for equipment in stage_equipments:
+
+#                 if equipment.status == "MAINTENANCE":
+
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 f"Equipment '{equipment.name}' "
+#                                 "is under maintenance."
+#                             ),
+#                             "equipment_id": equipment.id,
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 if equipment.status == "FAULT":
+
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 f"Equipment '{equipment.name}' "
+#                                 "is in fault state."
+#                             ),
+#                             "equipment_id": equipment.id,
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#             # =====================================================
+#             # GET ACTIVE PROCESSES
+#             # =====================================================
+
+#             processes = list(
+#                 stage.processes
+#                 .filter(
+#                     is_active=True,
+#                 )
+#                 .prefetch_related(
+#                     "equipments",
+#                 )
+#                 .order_by(
+#                     "sequence",
+#                 )
+#             )
+
+#             if not processes:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": (
+#                             "No active processes are configured "
+#                             "for this stage."
+#                         ),
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # =====================================================
+#             # VALIDATE PROCESS EQUIPMENT
+#             # =====================================================
+
+#             for process in processes:
+
+#                 process_equipments = list(
+#                     process.equipments
+#                     .filter(
+#                         is_active=True,
+#                     )
+#                     .select_related(
+#                         "equipment_type",
+#                     )
+#                     .all()
+#                 )
+
+#                 # -------------------------------------------------
+#                 # Process must have equipment.
+#                 # -------------------------------------------------
+
+#                 if not process_equipments:
+
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 f"No active equipment configured "
+#                                 f"for process '{process.name}'."
+#                             ),
+#                             "process_id": process.id,
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 # -------------------------------------------------
+#                 # Validate equipment availability.
+#                 #
+#                 # NOTE:
+#                 # We intentionally DO NOT check whether process
+#                 # equipment belongs to stage.equipments.
+#                 #
+#                 # Process.equipments is the source for process
+#                 # execution.
+#                 # -------------------------------------------------
+
+#                 for equipment in process_equipments:
+
+#                     if equipment.status == "MAINTENANCE":
+
+#                         return Response(
+#                             {
+#                                 "success": False,
+#                                 "message": (
+#                                     f"Equipment '{equipment.name}' "
+#                                     "is under maintenance."
+#                                 ),
+#                                 "process_id": process.id,
+#                                 "equipment_id": equipment.id,
+#                             },
+#                             status=status.HTTP_400_BAD_REQUEST,
+#                         )
+
+#                     if equipment.status == "FAULT":
+
+#                         return Response(
+#                             {
+#                                 "success": False,
+#                                 "message": (
+#                                     f"Equipment '{equipment.name}' "
+#                                     "is in fault state."
+#                                 ),
+#                                 "process_id": process.id,
+#                                 "equipment_id": equipment.id,
+#                             },
+#                             status=status.HTTP_400_BAD_REQUEST,
+#                         )
+
+#             # =====================================================
+#             # CREATE BATCH
+#             # =====================================================
+
+#             with transaction.atomic():
+
+#                 # -------------------------------------------------
+#                 # Generate batch number.
+#                 # -------------------------------------------------
+
+#                 last_batch = (
+#                     StageBatch.objects
+#                     .order_by("-id")
+#                     .first()
+#                 )
+
+#                 if last_batch:
+
+#                     try:
+
+#                         last_number = int(
+#                             last_batch.batch_number
+#                             .split("-")[-1]
+#                         )
+
+#                     except (ValueError, AttributeError):
+
+#                         last_number = 0
+
+#                 else:
+
+#                     last_number = 0
+
+#                 batch_number = (
+#                     f"STAGE-{stage.id}-"
+#                     f"{last_number + 1:06d}"
+#                 )
+
+#                 # -------------------------------------------------
+#                 # Create StageBatch.
+#                 # -------------------------------------------------
+
+#                 stage_batch = StageBatch.objects.create(
+#                     batch_number=batch_number,
+#                     stage=stage,
+#                     status="PENDING",
+#                 )
+
+#                 # -------------------------------------------------
+#                 # Create process execution records.
+#                 # -------------------------------------------------
+
+#                 process_executions = []
+
+#                 for process in processes:
+
+#                     process_execution = (
+#                         StageBatchProcessExecution.objects.create(
+#                             stage_batch=stage_batch,
+#                             process=process,
+#                             status="PENDING",
+#                         )
+#                     )
+
+#                     process_executions.append(
+#                         process_execution
+#                     )
+
+#                 # -------------------------------------------------
+#                 # Activate stage equipment.
+#                 #
+#                 # IMPORTANT:
+#                 #
+#                 # status = ACTIVE
+#                 # current_state = OFF
+#                 #
+#                 # The execution service will turn equipment ON/OFF
+#                 # according to process configuration.
+#                 # -------------------------------------------------
+
+#                 for equipment in stage_equipments:
+
+#                     equipment.status = "ACTIVE"
+#                     equipment.current_state = "OFF"
+
+#                     equipment.save(
+#                         update_fields=[
+#                             "status",
+#                             "current_state",
+#                             "updated_at",
+#                         ]
+#                     )
+
+#                 # -------------------------------------------------
+#                 # Start StageBatch.
+#                 # -------------------------------------------------
+
+#                 stage_batch.start_batch()
+
+#                 # -------------------------------------------------
+#                 # Start background execution ONLY AFTER the
+#                 # database transaction successfully commits.
+#                 #
+#                 # This is important.
+#                 #
+#                 # If the transaction fails, we don't want the
+#                 # background thread to start using incomplete data.
+#                 # -------------------------------------------------
+
+#                 # transaction.on_commit(
+#                 #     lambda batch_id=stage_batch.id: (
+#                 #         threading.Thread(
+#                 #             target=run_stage_batch,
+#                 #             args=(batch_id,),
+#                 #             daemon=True,
+#                 #         ).start()
+#                 #     )
+#                 # )
+
+#             # =====================================================
+#             # PREPARE IMMEDIATE RESPONSE
+#             # =====================================================
+
+#             equipment_data = []
+
+#             for equipment in stage_equipments:
+
+#                 equipment_data.append(
+#                     {
+#                         "id": equipment.id,
+#                         "name": equipment.name,
+#                         "code": equipment.code,
+#                         "equipment_type": (
+#                             equipment.equipment_type.name
+#                         ),
+#                         "status": equipment.status,
+#                         "current_state": equipment.current_state,
+#                         "start_time": equipment.start_time,
+#                         "end_time": equipment.end_time,
+#                         "duration_seconds": (
+#                             equipment.duration_seconds
+#                         ),
+#                     }
+#                 )
+
+#             process_data = []
+
+#             for process_execution in process_executions:
+
+#                 process_data.append(
+#                     {
+#                         "id": process_execution.id,
+#                         "process_id": (
+#                             process_execution.process_id
+#                         ),
+#                         "process_name": (
+#                             process_execution.process.name
+#                         ),
+#                         "sequence": (
+#                             process_execution.process.sequence
+#                         ),
+#                         "status": process_execution.status,
+#                     }
+#                 )
+
+#             # =====================================================
+#             # RETURN IMMEDIATELY
+#             # =====================================================
+
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "message": (
+#                         "Stage execution started successfully."
+#                     ),
+#                     "data": {
+#                         "stage_id": stage.id,
+#                         "stage_name": stage.name,
+#                         "batch_id": stage_batch.id,
+#                         "batch_number": (
+#                             stage_batch.batch_number
+#                         ),
+#                         "status": stage_batch.status,
+#                         "execution": "RUNNING_IN_BACKGROUND",
+#                         "equipments": equipment_data,
+#                         "processes": process_data,
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as exc:
+
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": (
+#                         "Failed to start stage execution."
+#                     ),
+#                     "error": str(exc),
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+
+
+from django.db import transaction
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from treatment_process.models import (
+    TreatmentStage,
+    StageBatch,
+    StageBatchProcessExecution,
+    StageEquipmentConfig,
+)
+
+
 class StageBatchStartView(APIView):
     """
     Start automatic execution of a TreatmentStage.
 
     Important:
 
-    The API does NOT execute the complete stage directly.
+    The API does not execute the complete stage directly.
 
     It creates the StageBatch and process execution records,
-    then starts the actual execution in a background thread.
+    activates the stage equipment configurations, and starts
+    the StageBatch.
 
-    Therefore the API returns immediately while the stage continues
-    running in the background.
+    The actual process execution is handled separately by
+    the background worker.
+
+    Runtime equipment fields are stored in
+    StageEquipmentConfig instead of Equipment.
+
+    Equipment:
+        is_active
+            -> physical equipment availability.
+
+    StageEquipmentConfig:
+        status
+            -> stage runtime status
+               ACTIVE / INACTIVE / MAINTENANCE / FAULT
+
+        current_state
+            -> OFF / ON
+
+        start_time
+            -> equipment ON start time
+
+        end_time
+            -> equipment OFF time
+
+        duration_seconds
+            -> configured equipment duration
+
+    StageBatchProcessEquipmentExecution:
+        scheduled_at
+            -> worker scheduling time.
     """
 
     permission_classes = [IsAuthenticated]
@@ -2342,6 +2973,20 @@ class StageBatchStartView(APIView):
             # =====================================================
             # GET STAGE EQUIPMENT
             # =====================================================
+            #
+            # IMPORTANT:
+            #
+            # We still use Equipment.is_active exactly as before.
+            #
+            # We do NOT use config.status to decide whether the
+            # equipment is active.
+            #
+            # config.status is checked only for MAINTENANCE / FAULT,
+            # just like the old Equipment.status logic.
+            #
+            # INACTIVE is allowed because START will change it to
+            # ACTIVE.
+            # =====================================================
 
             stage_equipments = list(
                 stage.equipments
@@ -2368,12 +3013,60 @@ class StageBatchStartView(APIView):
                 )
 
             # =====================================================
-            # VALIDATE STAGE EQUIPMENT
+            # GET STAGE EQUIPMENT CONFIGURATIONS
+            # =====================================================
+
+            stage_configs = {
+                config.equipment_id: config
+                for config in StageEquipmentConfig.objects.filter(
+                    stage=stage,
+                    equipment_id__in=[
+                        equipment.id
+                        for equipment in stage_equipments
+                    ],
+                )
+            }
+
+            # =====================================================
+            # VALIDATE STAGE EQUIPMENT CONFIGURATION
             # =====================================================
 
             for equipment in stage_equipments:
 
-                if equipment.status == "MAINTENANCE":
+                config = stage_configs.get(
+                    equipment.id
+                )
+
+                # -------------------------------------------------
+                # Every stage equipment must have a configuration.
+                # -------------------------------------------------
+
+                if not config:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"No automatic configuration found "
+                                f"for equipment '{equipment.name}'."
+                            ),
+                            "equipment_id": equipment.id,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # -------------------------------------------------
+                # Keep the OLD business logic:
+                #
+                # MAINTENANCE -> cannot start
+                # FAULT        -> cannot start
+                #
+                # INACTIVE is NOT an error.
+                #
+                # It will become ACTIVE when the stage starts.
+                # -------------------------------------------------
+
+                if config.status == "MAINTENANCE":
 
                     return Response(
                         {
@@ -2387,7 +3080,7 @@ class StageBatchStartView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                if equipment.status == "FAULT":
+                if config.status == "FAULT":
 
                     return Response(
                         {
@@ -2434,6 +3127,17 @@ class StageBatchStartView(APIView):
             # =====================================================
             # VALIDATE PROCESS EQUIPMENT
             # =====================================================
+            #
+            # IMPORTANT:
+            #
+            # Process.equipments remains the source of equipment
+            # for that process.
+            #
+            # We DO NOT check whether process equipment belongs
+            # to stage.equipments.
+            #
+            # This preserves the old API logic.
+            # =====================================================
 
             for process in processes:
 
@@ -2467,19 +3171,54 @@ class StageBatchStartView(APIView):
                     )
 
                 # -------------------------------------------------
-                # Validate equipment availability.
+                # Validate process equipment availability.
                 #
-                # NOTE:
-                # We intentionally DO NOT check whether process
-                # equipment belongs to stage.equipments.
+                # Same old business rule:
                 #
-                # Process.equipments is the source for process
-                # execution.
+                # MAINTENANCE -> reject
+                # FAULT        -> reject
+                #
+                # INACTIVE is allowed.
+                #
+                # The process equipment itself remains independent
+                # from stage.equipments.
                 # -------------------------------------------------
 
                 for equipment in process_equipments:
 
-                    if equipment.status == "MAINTENANCE":
+                    config = (
+                        StageEquipmentConfig.objects
+                        .filter(
+                            stage=stage,
+                            equipment=equipment,
+                        )
+                        .first()
+                    )
+
+                    # -------------------------------------------------
+                    # If this process equipment has no configuration
+                    # for the stage, automatic execution cannot know
+                    # its runtime configuration.
+                    # -------------------------------------------------
+
+                    if not config:
+
+                        return Response(
+                            {
+                                "success": False,
+                                "message": (
+                                    f"No automatic configuration "
+                                    f"found for equipment "
+                                    f"'{equipment.name}' in stage "
+                                    f"'{stage.name}'."
+                                ),
+                                "process_id": process.id,
+                                "equipment_id": equipment.id,
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    if config.status == "MAINTENANCE":
 
                         return Response(
                             {
@@ -2494,7 +3233,7 @@ class StageBatchStartView(APIView):
                             status=status.HTTP_400_BAD_REQUEST,
                         )
 
-                    if equipment.status == "FAULT":
+                    if config.status == "FAULT":
 
                         return Response(
                             {
@@ -2517,6 +3256,8 @@ class StageBatchStartView(APIView):
 
                 # -------------------------------------------------
                 # Generate batch number.
+                #
+                # Keep the old batch-number generation logic.
                 # -------------------------------------------------
 
                 last_batch = (
@@ -2577,24 +3318,38 @@ class StageBatchStartView(APIView):
                         process_execution
                     )
 
-                # -------------------------------------------------
-                # Activate stage equipment.
+                # =================================================
+                # ACTIVATE STAGE EQUIPMENT
+                # =================================================
                 #
-                # IMPORTANT:
+                # THIS IS THE IMPORTANT OLD BUSINESS LOGIC.
                 #
-                # status = ACTIVE
-                # current_state = OFF
+                # Old:
                 #
-                # The execution service will turn equipment ON/OFF
-                # according to process configuration.
-                # -------------------------------------------------
+                #     equipment.status = "ACTIVE"
+                #     equipment.current_state = "OFF"
+                #
+                # New:
+                #
+                #     config.status = "ACTIVE"
+                #     config.current_state = "OFF"
+                #
+                # start_time/end_time are NOT reset here because
+                # they represent runtime timing.
+                # turn_equipment_on() will set start_time when the
+                # equipment actually turns ON.
+                # =================================================
 
                 for equipment in stage_equipments:
 
-                    equipment.status = "ACTIVE"
-                    equipment.current_state = "OFF"
+                    config = stage_configs[
+                        equipment.id
+                    ]
 
-                    equipment.save(
+                    config.status = "ACTIVE"
+                    config.current_state = "OFF"
+
+                    config.save(
                         update_fields=[
                             "status",
                             "current_state",
@@ -2609,24 +3364,11 @@ class StageBatchStartView(APIView):
                 stage_batch.start_batch()
 
                 # -------------------------------------------------
-                # Start background execution ONLY AFTER the
-                # database transaction successfully commits.
+                # The actual execution is handled by the worker.
                 #
-                # This is important.
-                #
-                # If the transaction fails, we don't want the
-                # background thread to start using incomplete data.
+                # We intentionally do not start a background thread
+                # from the HTTP request.
                 # -------------------------------------------------
-
-                # transaction.on_commit(
-                #     lambda batch_id=stage_batch.id: (
-                #         threading.Thread(
-                #             target=run_stage_batch,
-                #             args=(batch_id,),
-                #             daemon=True,
-                #         ).start()
-                #     )
-                # )
 
             # =====================================================
             # PREPARE IMMEDIATE RESPONSE
@@ -2636,23 +3378,45 @@ class StageBatchStartView(APIView):
 
             for equipment in stage_equipments:
 
+                config = stage_configs[
+                    equipment.id
+                ]
+
                 equipment_data.append(
                     {
                         "id": equipment.id,
                         "name": equipment.name,
                         "code": equipment.code,
+
                         "equipment_type": (
                             equipment.equipment_type.name
                         ),
-                        "status": equipment.status,
-                        "current_state": equipment.current_state,
-                        "start_time": equipment.start_time,
-                        "end_time": equipment.end_time,
+
+                        # Physical equipment availability.
+                        "is_active": equipment.is_active,
+
+                        # Stage runtime status.
+                        "status": config.status,
+
+                        # Current automatic state.
+                        "current_state": (
+                            config.current_state
+                        ),
+
+                        # Runtime start/end times.
+                        "start_time": config.start_time,
+                        "end_time": config.end_time,
+
+                        # Configured duration.
                         "duration_seconds": (
-                            equipment.duration_seconds
+                            config.duration_seconds
                         ),
                     }
                 )
+
+            # =====================================================
+            # PROCESS RESPONSE
+            # =====================================================
 
             process_data = []
 
@@ -2687,13 +3451,18 @@ class StageBatchStartView(APIView):
                     "data": {
                         "stage_id": stage.id,
                         "stage_name": stage.name,
+
                         "batch_id": stage_batch.id,
                         "batch_number": (
                             stage_batch.batch_number
                         ),
+
                         "status": stage_batch.status,
+
                         "execution": "RUNNING_IN_BACKGROUND",
+
                         "equipments": equipment_data,
+
                         "processes": process_data,
                     },
                 },
@@ -2715,6 +3484,769 @@ class StageBatchStartView(APIView):
 
 
 
+# from django.db import transaction
+# from django.utils import timezone
+
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from rest_framework.permissions import IsAuthenticated
+
+# from treatment_process.models import (
+#     TreatmentStage,
+#     StageBatch,
+#     StageBatchProcessExecution,
+#     StageBatchProcessEquipmentExecution,
+# )
+
+# from treatment_process.services.stage_controller import (
+#     StageExecutionService,
+# )
+
+
+
+
+# class StageBatchStopView(APIView):
+#     """
+#     Stop automatic execution of a treatment stage.
+
+#     STOP flow:
+
+#         1. Find the running StageBatch.
+#         2. Stop all PENDING/RUNNING process executions.
+#         3. Stop all WAITING/RUNNING equipment executions.
+#         4. Turn OFF every stage equipment that is currently ON.
+#         5. Deactivate every stage equipment.
+#         6. Mark StageBatch as STOPPED.
+
+#     Important:
+#         STOP does not wait for equipment duration.
+
+#         If a motor is currently ON and has 30 seconds
+#         remaining, STOP turns it OFF immediately.
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request, stage_id):
+
+#         try:
+
+#             # =========================================================
+#             # 1. GET STAGE
+#             # =========================================================
+
+#             stage = (
+#                 TreatmentStage.objects
+#                 .filter(
+#                     id=stage_id,
+#                     user=request.user,
+#                     is_active=True,
+#                 )
+#                 .prefetch_related("equipments")
+#                 .first()
+#             )
+
+#             if not stage:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": "Treatment stage not found.",
+#                     },
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#             # =========================================================
+#             # 2. GET RUNNING STAGE BATCH
+#             # =========================================================
+
+#             stage_batch = (
+#                 StageBatch.objects
+#                 .filter(
+#                     stage=stage,
+#                     status="RUNNING",
+#                 )
+#                 .first()
+#             )
+
+#             if not stage_batch:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": (
+#                             "No running batch found "
+#                             "for this treatment stage."
+#                         ),
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # =========================================================
+#             # 3. LOCK BATCH
+#             # =========================================================
+
+#             with transaction.atomic():
+
+#                 stage_batch = (
+#                     StageBatch.objects
+#                     .select_for_update()
+#                     .get(
+#                         id=stage_batch.id,
+#                     )
+#                 )
+
+#                 # -----------------------------------------------------
+#                 # Check again after acquiring the lock.
+#                 # -----------------------------------------------------
+
+#                 if stage_batch.status != "RUNNING":
+
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 "Stage is no longer running."
+#                             ),
+#                             "status": stage_batch.status,
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 # =====================================================
+#                 # 4. STOP PROCESS EXECUTIONS
+#                 # =====================================================
+#                 #
+#                 # PENDING processes must NEVER execute after STOP.
+#                 #
+#                 # RUNNING processes are stopped.
+#                 #
+#                 # COMPLETED processes remain COMPLETED.
+#                 # FAILED processes remain FAILED.
+#                 # STOPPED processes remain STOPPED.
+#                 # =====================================================
+
+#                 process_executions = (
+#                     StageBatchProcessExecution.objects
+#                     .filter(
+#                         stage_batch=stage_batch,
+#                         status__in=[
+#                             "PENDING",
+#                             "STARTED",
+#                             "RUNNING",
+#                         ],
+#                     )
+#                 )
+
+#                 process_count = process_executions.count()
+
+#                 for process_execution in process_executions:
+
+#                     process_execution.status = "STOPPED"
+#                     process_execution.completed_at = timezone.now()
+
+#                     if process_execution.started_at:
+
+#                         process_execution.actual_duration_seconds = int(
+#                             (
+#                                 process_execution.completed_at
+#                                 - process_execution.started_at
+#                             ).total_seconds()
+#                         )
+
+#                     process_execution.save(
+#                         update_fields=[
+#                             "status",
+#                             "completed_at",
+#                             "actual_duration_seconds",
+#                             "updated_at",
+#                         ]
+#                     )
+
+#                 # =====================================================
+#                 # 5. STOP EQUIPMENT EXECUTIONS
+#                 # =====================================================
+#                 #
+#                 # This includes:
+#                 #
+#                 # PENDING
+#                 # RUNNING
+#                 # WAITING
+#                 #
+#                 # The WAITING execution is especially important.
+#                 #
+#                 # Example:
+#                 #
+#                 # Pump Motor
+#                 #     ON
+#                 #     ↓
+#                 # WAITING until 08:35:06
+#                 #
+#                 # User presses STOP at 08:34:30
+#                 #
+#                 # The waiting execution must NOT resume at 08:35:06.
+#                 # =====================================================
+
+#                 equipment_executions = (
+#                     StageBatchProcessEquipmentExecution.objects
+#                     .filter(
+#                         stage_batch_process_execution__stage_batch=(
+#                             stage_batch
+#                         ),
+#                         status__in=[
+#                             "PENDING",
+#                             "STARTED",
+#                             "RUNNING",
+#                             "WAITING",
+#                         ],
+#                     )
+#                 )
+
+#                 equipment_execution_count = (
+#                     equipment_executions.count()
+#                 )
+
+#                 for equipment_execution in equipment_executions:
+
+#                     equipment_execution.status = "STOPPED"
+#                     equipment_execution.completed_at = timezone.now()
+
+#                     if equipment_execution.started_at:
+
+#                         equipment_execution.duration_seconds = int(
+#                             (
+#                                 equipment_execution.completed_at
+#                                 - equipment_execution.started_at
+#                             ).total_seconds()
+#                         )
+
+#                     equipment_execution.save(
+#                         update_fields=[
+#                             "status",
+#                             "completed_at",
+#                             "duration_seconds",
+#                             "updated_at",
+#                         ]
+#                     )
+
+#                 # =====================================================
+#                 # 6. STOP THE STAGE BATCH
+#                 # =====================================================
+#                 #
+#                 # This is done BEFORE returning to the worker.
+#                 #
+#                 # The worker checks:
+#                 #
+#                 #     status == RUNNING
+#                 #
+#                 # Therefore STOPPED means the worker will not continue
+#                 # this stage.
+#                 # =====================================================
+
+#                 stage_batch.stop_batch()
+
+#             # =========================================================
+#             # 7. TURN OFF ALL CURRENTLY ON EQUIPMENT
+#             # =========================================================
+#             #
+#             # IMPORTANT:
+#             #
+#             # We do NOT use the normal duration logic here.
+#             #
+#             # STOP means immediate shutdown.
+#             #
+#             # Example:
+#             #
+#             # Pump Motor
+#             #     ON
+#             #     remaining duration = 20 seconds
+#             #
+#             # STOP
+#             #     ↓
+#             # Pump Motor OFF immediately
+#             # =========================================================
+
+#             stage_equipments = list(
+#                 stage.equipments
+#                 .filter(
+#                     is_active=True,
+#                 )
+#                 .all()
+#             )
+
+#             service = StageExecutionService(stage_batch)
+
+#             turned_off_equipment = []
+
+#             for equipment in stage_equipments:
+
+#                 # -----------------------------------------------------
+#                 # Only turn OFF equipment that is actually ON.
+#                 # -----------------------------------------------------
+
+#                 if equipment.current_state == "ON":
+
+#                     service.turn_equipment_off(
+#                         equipment
+#                     )
+
+#                     turned_off_equipment.append(
+#                         {
+#                             "id": equipment.id,
+#                             "name": equipment.name,
+#                             "code": equipment.code,
+#                         }
+#                     )
+
+#             # =========================================================
+#             # 8. DEACTIVATE ALL STAGE EQUIPMENT
+#             # =========================================================
+#             #
+#             # After everything is OFF:
+#             #
+#             #     current_state = OFF
+#             #     status         = INACTIVE
+#             #
+#             # Your existing service already performs this final state.
+#             # =========================================================
+
+#             service.deactivate_stage_equipment()
+
+#             # =========================================================
+#             # 9. RESPONSE
+#             # =========================================================
+
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "message": (
+#                         "Treatment stage stopped successfully."
+#                     ),
+#                     "data": {
+#                         "batch_id": stage_batch.id,
+#                         "batch_number": stage_batch.batch_number,
+#                         "stage_id": stage.id,
+#                         "stage_name": stage.name,
+#                         "status": stage_batch.status,
+#                         "started_at": stage_batch.started_at,
+#                         "completed_at": stage_batch.completed_at,
+#                         "stopped_processes": process_count,
+#                         "stopped_equipment_executions": (
+#                             equipment_execution_count
+#                         ),
+#                         "turned_off_equipment": (
+#                             turned_off_equipment
+#                         ),
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as exc:
+
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": (
+#                         "Failed to stop treatment stage."
+#                     ),
+#                     "error": str(exc),
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+
+# from django.db import transaction
+# from django.utils import timezone
+
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from rest_framework.permissions import IsAuthenticated
+
+# from treatment_process.models import (
+#     TreatmentStage,
+#     StageBatch,
+#     StageBatchProcessExecution,
+#     StageBatchProcessEquipmentExecution,
+#     StageEquipmentConfig,
+# )
+
+# from treatment_process.services.stage_controller import (
+#     StageExecutionService,
+# )
+
+
+# class StageBatchStopView(APIView):
+#     """
+#     Stop automatic execution of a treatment stage.
+
+#     STOP flow:
+
+#         1. Find the running StageBatch.
+#         2. Stop all PENDING/RUNNING process executions.
+#         3. Stop all WAITING/RUNNING equipment executions.
+#         4. Turn OFF every stage equipment that is currently ON.
+#         5. Deactivate every stage equipment.
+#         6. Mark StageBatch as STOPPED.
+
+#     Important:
+#         STOP does not wait for equipment duration.
+
+#         If a motor is currently ON and has 30 seconds
+#         remaining, STOP turns it OFF immediately.
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request, stage_id):
+
+#         try:
+
+#             # =========================================================
+#             # 1. GET STAGE
+#             # =========================================================
+
+#             stage = (
+#                 TreatmentStage.objects
+#                 .filter(
+#                     id=stage_id,
+#                     user=request.user,
+#                     is_active=True,
+#                 )
+#                 .prefetch_related("equipments")
+#                 .first()
+#             )
+
+#             if not stage:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": "Treatment stage not found.",
+#                     },
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#             # =========================================================
+#             # 2. GET RUNNING STAGE BATCH
+#             # =========================================================
+
+#             stage_batch = (
+#                 StageBatch.objects
+#                 .filter(
+#                     stage=stage,
+#                     status="RUNNING",
+#                 )
+#                 .first()
+#             )
+
+#             if not stage_batch:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": (
+#                             "No running batch found "
+#                             "for this treatment stage."
+#                         ),
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # =========================================================
+#             # 3. LOCK BATCH
+#             # =========================================================
+
+#             with transaction.atomic():
+
+#                 stage_batch = (
+#                     StageBatch.objects
+#                     .select_for_update()
+#                     .get(
+#                         id=stage_batch.id,
+#                     )
+#                 )
+
+#                 # -----------------------------------------------------
+#                 # Check again after acquiring the lock.
+#                 # -----------------------------------------------------
+
+#                 if stage_batch.status != "RUNNING":
+
+#                     return Response(
+#                         {
+#                             "success": False,
+#                             "message": (
+#                                 "Stage is no longer running."
+#                             ),
+#                             "status": stage_batch.status,
+#                         },
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+
+#                 # =====================================================
+#                 # 4. STOP PROCESS EXECUTIONS
+#                 # =====================================================
+#                 #
+#                 # PENDING processes must NEVER execute after STOP.
+#                 #
+#                 # RUNNING processes are stopped.
+#                 #
+#                 # COMPLETED processes remain COMPLETED.
+#                 # FAILED processes remain FAILED.
+#                 # STOPPED processes remain STOPPED.
+#                 # =====================================================
+
+#                 process_executions = (
+#                     StageBatchProcessExecution.objects
+#                     .filter(
+#                         stage_batch=stage_batch,
+#                         status__in=[
+#                             "PENDING",
+#                             "STARTED",
+#                             "RUNNING",
+#                         ],
+#                     )
+#                 )
+
+#                 process_count = process_executions.count()
+
+#                 for process_execution in process_executions:
+
+#                     process_execution.status = "STOPPED"
+#                     process_execution.completed_at = timezone.now()
+
+#                     if process_execution.started_at:
+
+#                         process_execution.actual_duration_seconds = int(
+#                             (
+#                                 process_execution.completed_at
+#                                 - process_execution.started_at
+#                             ).total_seconds()
+#                         )
+
+#                     process_execution.save(
+#                         update_fields=[
+#                             "status",
+#                             "completed_at",
+#                             "actual_duration_seconds",
+#                             "updated_at",
+#                         ]
+#                     )
+
+#                 # =====================================================
+#                 # 5. STOP EQUIPMENT EXECUTIONS
+#                 # =====================================================
+#                 #
+#                 # This includes:
+#                 #
+#                 # PENDING
+#                 # STARTED
+#                 # RUNNING
+#                 # WAITING
+#                 #
+#                 # The WAITING execution is especially important.
+#                 #
+#                 # Example:
+#                 #
+#                 # Pump Motor
+#                 #     ON
+#                 #     ↓
+#                 # WAITING until 08:35:06
+#                 #
+#                 # User presses STOP at 08:34:30
+#                 #
+#                 # The waiting execution must NOT resume at 08:35:06.
+#                 # =====================================================
+
+#                 equipment_executions = (
+#                     StageBatchProcessEquipmentExecution.objects
+#                     .filter(
+#                         stage_batch_process_execution__stage_batch=(
+#                             stage_batch
+#                         ),
+#                         status__in=[
+#                             "PENDING",
+#                             "STARTED",
+#                             "RUNNING",
+#                             "WAITING",
+#                         ],
+#                     )
+#                 )
+
+#                 equipment_execution_count = (
+#                     equipment_executions.count()
+#                 )
+
+#                 for equipment_execution in equipment_executions:
+
+#                     equipment_execution.status = "STOPPED"
+#                     equipment_execution.completed_at = timezone.now()
+
+#                     if equipment_execution.started_at:
+
+#                         equipment_execution.duration_seconds = int(
+#                             (
+#                                 equipment_execution.completed_at
+#                                 - equipment_execution.started_at
+#                             ).total_seconds()
+#                         )
+
+#                     equipment_execution.save(
+#                         update_fields=[
+#                             "status",
+#                             "completed_at",
+#                             "duration_seconds",
+#                             "updated_at",
+#                         ]
+#                     )
+
+#                 # =====================================================
+#                 # 6. STOP THE STAGE BATCH
+#                 # =====================================================
+#                 #
+#                 # This is done BEFORE returning to the worker.
+#                 #
+#                 # The worker checks:
+#                 #
+#                 #     status == RUNNING
+#                 #
+#                 # Therefore STOPPED means the worker will not continue
+#                 # this stage.
+#                 # =====================================================
+
+#                 stage_batch.stop_batch()
+
+#             # =========================================================
+#             # 7. TURN OFF ALL CURRENTLY ON EQUIPMENT
+#             # =========================================================
+#             #
+#             # IMPORTANT:
+#             #
+#             # We do NOT use the normal duration logic here.
+#             #
+#             # STOP means immediate shutdown.
+#             #
+#             # Example:
+#             #
+#             # Pump Motor
+#             #     ON
+#             #     remaining duration = 20 seconds
+#             #
+#             # STOP
+#             #     ↓
+#             # Pump Motor OFF immediately
+#             # =========================================================
+
+#             stage_equipments = list(
+#                 stage.equipments
+#                 .all()
+#             )
+
+#             service = StageExecutionService(stage_batch)
+
+#             turned_off_equipment = []
+
+#             for equipment in stage_equipments:
+
+#                 # -----------------------------------------------------
+#                 # Get stage-specific equipment configuration.
+#                 # -----------------------------------------------------
+
+#                 config = (
+#                     StageEquipmentConfig.objects
+#                     .filter(
+#                         stage=stage,
+#                         equipment=equipment,
+#                     )
+#                     .first()
+#                 )
+
+#                 if not config:
+#                     continue
+
+#                 # -----------------------------------------------------
+#                 # Only turn OFF equipment that is currently ON.
+#                 #
+#                 # current_state belongs to StageEquipmentConfig.
+#                 # -----------------------------------------------------
+
+#                 if config.current_state == "ON":
+
+#                     service.force_turn_equipment_off(
+#                         equipment,
+#                         config,
+#                     )
+
+#                     turned_off_equipment.append(
+#                         {
+#                             "id": equipment.id,
+#                             "name": equipment.name,
+#                             "code": equipment.code,
+#                         }
+#                     )
+
+#             # =========================================================
+#             # 8. DEACTIVATE ALL STAGE EQUIPMENT
+#             # =========================================================
+#             #
+#             # After everything is OFF:
+#             #
+#             #     current_state = OFF
+#             #
+#             # The existing service performs the final state.
+#             # =========================================================
+
+#             service.deactivate_stage_equipment()
+
+#             # =========================================================
+#             # 9. RESPONSE
+#             # =========================================================
+
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "message": (
+#                         "Treatment stage stopped successfully."
+#                     ),
+#                     "data": {
+#                         "batch_id": stage_batch.id,
+#                         "batch_number": stage_batch.batch_number,
+#                         "stage_id": stage.id,
+#                         "stage_name": stage.name,
+#                         "status": stage_batch.status,
+#                         "started_at": stage_batch.started_at,
+#                         "completed_at": stage_batch.completed_at,
+#                         "stopped_processes": process_count,
+#                         "stopped_equipment_executions": (
+#                             equipment_execution_count
+#                         ),
+#                         "turned_off_equipment": (
+#                             turned_off_equipment
+#                         ),
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as exc:
+
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": (
+#                         "Failed to stop treatment stage."
+#                     ),
+#                     "error": str(exc),
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+
 
 from django.db import transaction
 from django.utils import timezone
@@ -2729,6 +4261,7 @@ from treatment_process.models import (
     StageBatch,
     StageBatchProcessExecution,
     StageBatchProcessEquipmentExecution,
+    StageEquipmentConfig,
 )
 
 from treatment_process.services.stage_controller import (
@@ -2738,34 +4271,98 @@ from treatment_process.services.stage_controller import (
 
 
 
+from django.db import transaction
+from django.utils import timezone
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
+from treatment_process.models import (
+    TreatmentStage,
+    StageBatch,
+    StageBatchProcessExecution,
+    StageBatchProcessEquipmentExecution,
+    StageEquipmentConfig,
+)
+
+
 class StageBatchStopView(APIView):
     """
     Stop automatic execution of a treatment stage.
 
     STOP flow:
 
-        1. Find the running StageBatch.
-        2. Stop all PENDING/RUNNING process executions.
-        3. Stop all WAITING/RUNNING equipment executions.
-        4. Turn OFF every stage equipment that is currently ON.
-        5. Deactivate every stage equipment.
-        6. Mark StageBatch as STOPPED.
+        1. Find the treatment stage.
+        2. Find its currently RUNNING StageBatch.
+        3. Lock the StageBatch.
+        4. Stop PENDING / STARTED / RUNNING processes.
+        5. Stop PENDING / STARTED / RUNNING / WAITING
+           equipment executions.
+        6. Immediately turn OFF every currently ON
+           StageEquipmentConfig.
+        7. Set StageEquipmentConfig status to INACTIVE.
+        8. Mark the StageBatch as STOPPED.
 
-    Important:
-        STOP does not wait for equipment duration.
+    IMPORTANT:
 
-        If a motor is currently ON and has 30 seconds
-        remaining, STOP turns it OFF immediately.
+        STOP does NOT wait for equipment duration.
+
+        Example:
+
+            Pump:
+                current_state = ON
+                duration_seconds = 30
+                remaining duration = 20 seconds
+
+            User presses STOP.
+
+            Result:
+
+                Pump -> OFF immediately
+
+        The normal duration logic is completely bypassed.
+
+    IMPORTANT:
+
+        Runtime equipment fields now belong to
+        StageEquipmentConfig.
+
+        Therefore STOP uses:
+
+            config.current_state
+            config.end_time
+            config.status
+
+        It does NOT use:
+
+            equipment.current_state
+            equipment.start_time
+            equipment.end_time
+            equipment.duration_seconds
+            equipment.status
+
+        Equipment.is_active is also NOT used to decide
+        whether an already-running equipment should be
+        turned OFF.
+
+        STOP is a safety operation, so every relevant
+        configuration must be forced OFF.
     """
 
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, stage_id):
+    def post(
+        self,
+        request,
+        stage_id,
+    ):
 
         try:
 
             # =========================================================
-            # 1. GET STAGE
+            # 1. GET TREATMENT STAGE
             # =========================================================
 
             stage = (
@@ -2775,7 +4372,6 @@ class StageBatchStopView(APIView):
                     user=request.user,
                     is_active=True,
                 )
-                .prefetch_related("equipments")
                 .first()
             )
 
@@ -2784,13 +4380,15 @@ class StageBatchStopView(APIView):
                 return Response(
                     {
                         "success": False,
-                        "message": "Treatment stage not found.",
+                        "message": (
+                            "Treatment stage not found."
+                        ),
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
             # =========================================================
-            # 2. GET RUNNING STAGE BATCH
+            # 2. GET CURRENTLY RUNNING STAGE BATCH
             # =========================================================
 
             stage_batch = (
@@ -2816,7 +4414,13 @@ class StageBatchStopView(APIView):
                 )
 
             # =========================================================
-            # 3. LOCK BATCH
+            # 3. LOCK THE STAGE BATCH
+            # =========================================================
+            #
+            # This prevents two STOP requests from trying to
+            # stop the same batch at the same time.
+            #
+            # It also prevents a race with the worker.
             # =========================================================
 
             with transaction.atomic():
@@ -2824,6 +4428,9 @@ class StageBatchStopView(APIView):
                 stage_batch = (
                     StageBatch.objects
                     .select_for_update()
+                    .select_related(
+                        "stage",
+                    )
                     .get(
                         id=stage_batch.id,
                     )
@@ -2850,13 +4457,16 @@ class StageBatchStopView(APIView):
                 # 4. STOP PROCESS EXECUTIONS
                 # =====================================================
                 #
-                # PENDING processes must NEVER execute after STOP.
+                # These processes have not completed yet.
                 #
-                # RUNNING processes are stopped.
+                # PENDING
+                # STARTED
+                # RUNNING
                 #
-                # COMPLETED processes remain COMPLETED.
-                # FAILED processes remain FAILED.
-                # STOPPED processes remain STOPPED.
+                # They must not continue after STOP.
+                #
+                # COMPLETED / FAILED / STOPPED records are left
+                # unchanged.
                 # =====================================================
 
                 process_executions = (
@@ -2871,12 +4481,24 @@ class StageBatchStopView(APIView):
                     )
                 )
 
-                process_count = process_executions.count()
+                process_count = (
+                    process_executions.count()
+                )
+
+                stopped_at = timezone.now()
 
                 for process_execution in process_executions:
 
                     process_execution.status = "STOPPED"
-                    process_execution.completed_at = timezone.now()
+
+                    process_execution.completed_at = (
+                        stopped_at
+                    )
+
+                    # -------------------------------------------------
+                    # Calculate actual process duration only when
+                    # the process had actually started.
+                    # -------------------------------------------------
 
                     if process_execution.started_at:
 
@@ -2900,24 +4522,24 @@ class StageBatchStopView(APIView):
                 # 5. STOP EQUIPMENT EXECUTIONS
                 # =====================================================
                 #
-                # This includes:
+                # This includes WAITING executions.
                 #
-                # PENDING
-                # RUNNING
-                # WAITING
-                #
-                # The WAITING execution is especially important.
+                # This is especially important for timed equipment.
                 #
                 # Example:
                 #
-                # Pump Motor
-                #     ON
-                #     ↓
-                # WAITING until 08:35:06
+                #     Pump
+                #         ON
+                #         ↓
+                #         WAITING
+                #         ↓
+                #         scheduled_at = 10:30:00
                 #
-                # User presses STOP at 08:34:30
+                #     User presses STOP at 10:29:40
                 #
-                # The waiting execution must NOT resume at 08:35:06.
+                # The WAITING record is changed to STOPPED.
+                #
+                # Therefore the worker will NOT resume it later.
                 # =====================================================
 
                 equipment_executions = (
@@ -2942,22 +4564,26 @@ class StageBatchStopView(APIView):
                 for equipment_execution in equipment_executions:
 
                     equipment_execution.status = "STOPPED"
-                    equipment_execution.completed_at = timezone.now()
 
-                    if equipment_execution.started_at:
+                    equipment_execution.completed_at = (
+                        stopped_at
+                    )
 
-                        equipment_execution.duration_seconds = int(
-                            (
-                                equipment_execution.completed_at
-                                - equipment_execution.started_at
-                            ).total_seconds()
-                        )
+                    # -------------------------------------------------
+                    # DO NOT use:
+                    #
+                    #     equipment_execution.duration_seconds
+                    #
+                    # because that is not the runtime duration field
+                    # on this execution model.
+                    #
+                    # We only need to mark the execution STOPPED.
+                    # -------------------------------------------------
 
                     equipment_execution.save(
                         update_fields=[
                             "status",
                             "completed_at",
-                            "duration_seconds",
                             "updated_at",
                         ]
                     )
@@ -2966,87 +4592,108 @@ class StageBatchStopView(APIView):
                 # 6. STOP THE STAGE BATCH
                 # =====================================================
                 #
-                # This is done BEFORE returning to the worker.
+                # Set this before leaving the transaction.
                 #
-                # The worker checks:
+                # The worker only processes StageBatch objects
+                # whose status is RUNNING.
                 #
-                #     status == RUNNING
-                #
-                # Therefore STOPPED means the worker will not continue
-                # this stage.
+                # Therefore after this becomes STOPPED, the worker
+                # cannot continue the stage.
                 # =====================================================
 
                 stage_batch.stop_batch()
 
-            # =========================================================
-            # 7. TURN OFF ALL CURRENTLY ON EQUIPMENT
-            # =========================================================
-            #
-            # IMPORTANT:
-            #
-            # We do NOT use the normal duration logic here.
-            #
-            # STOP means immediate shutdown.
-            #
-            # Example:
-            #
-            # Pump Motor
-            #     ON
-            #     remaining duration = 20 seconds
-            #
-            # STOP
-            #     ↓
-            # Pump Motor OFF immediately
-            # =========================================================
+                # =====================================================
+                # 7. FORCE ALL STAGE EQUIPMENT OFF
+                # =====================================================
+                #
+                # IMPORTANT:
+                #
+                # This is NOT normal duration processing.
+                #
+                # STOP means:
+                #
+                #     ON  -> OFF immediately
+                #
+                # even if duration has not completed.
+                #
+                # We use StageEquipmentConfig because all runtime
+                # fields were moved there.
+                # =====================================================
 
-            stage_equipments = list(
-                stage.equipments
-                .filter(
-                    is_active=True,
+                stage_configs = (
+                    StageEquipmentConfig.objects
+                    .filter(
+                        stage=stage,
+                    )
+                    .select_related(
+                        "equipment",
+                    )
                 )
-                .all()
-            )
 
-            service = StageExecutionService(stage_batch)
+                turned_off_equipment = []
 
-            turned_off_equipment = []
+                for config in stage_configs:
 
-            for equipment in stage_equipments:
+                    equipment = config.equipment
 
-                # -----------------------------------------------------
-                # Only turn OFF equipment that is actually ON.
-                # -----------------------------------------------------
+                    # -------------------------------------------------
+                    # Only record equipment as "turned off" if it
+                    # was actually ON.
+                    # -------------------------------------------------
 
-                if equipment.current_state == "ON":
-
-                    service.turn_equipment_off(
-                        equipment
+                    was_on = (
+                        config.current_state == "ON"
                     )
 
-                    turned_off_equipment.append(
-                        {
-                            "id": equipment.id,
-                            "name": equipment.name,
-                            "code": equipment.code,
-                        }
+                    # -------------------------------------------------
+                    # Force runtime state OFF.
+                    #
+                    # We do NOT check duration_seconds here.
+                    # -------------------------------------------------
+
+                    config.current_state = "OFF"
+
+                    # -------------------------------------------------
+                    # Record the actual STOP/OFF time.
+                    # -------------------------------------------------
+
+                    config.end_time = stopped_at.time()
+
+                    # -------------------------------------------------
+                    # The stage is no longer running.
+                    #
+                    # Therefore the stage-specific configuration
+                    # becomes INACTIVE.
+                    # -------------------------------------------------
+
+                    config.status = "INACTIVE"
+
+                    config.save(
+                        update_fields=[
+                            "current_state",
+                            "end_time",
+                            "status",
+                            "updated_at",
+                        ]
                     )
 
-            # =========================================================
-            # 8. DEACTIVATE ALL STAGE EQUIPMENT
-            # =========================================================
-            #
-            # After everything is OFF:
-            #
-            #     current_state = OFF
-            #     status         = INACTIVE
-            #
-            # Your existing service already performs this final state.
-            # =========================================================
+                    # -------------------------------------------------
+                    # Add only equipment that was actually ON.
+                    # -------------------------------------------------
 
-            service.deactivate_stage_equipment()
+                    if was_on:
+
+                        turned_off_equipment.append(
+                            {
+                                "id": equipment.id,
+                                "name": equipment.name,
+                                "code": equipment.code,
+                            }
+                        )
 
             # =========================================================
-            # 9. RESPONSE
+            # 8. RESPONSE
             # =========================================================
 
             return Response(
@@ -3088,16 +4735,473 @@ class StageBatchStopView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        
+
+
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+
+# from treatment_process.models import (
+#     TreatmentStage,
+#     StageBatch,
+#     StageBatchProcessExecution,
+# )
+
+
+# class StageBatchStatusView(APIView):
+#     """
+#     Get the current execution status of a TreatmentStage.
+
+#     This API returns:
+
+#     1. StageBatch information.
+#     2. Current/global equipment state.
+#     3. Process execution status.
+#     4. Equipment state for each individual process execution.
+
+#     Important distinction:
+
+#         Equipment.current_state
+#             -> Current/global state of the equipment.
+
+#         StageBatchProcessEquipmentExecution.state
+#             -> State produced by that particular process.
+#     """
+
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, stage_id):
+
+#         try:
+
+#             # =====================================================
+#             # GET STAGE
+#             # =====================================================
+
+#             try:
+
+#                 stage = (
+#                     TreatmentStage.objects
+#                     .get(
+#                         id=stage_id,
+#                         user=request.user,
+#                     )
+#                 )
+
+#             except TreatmentStage.DoesNotExist:
+
+#                 return Response(
+#                     {
+#                         "success": False,
+#                         "message": "Treatment stage not found.",
+#                     },
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#             # =====================================================
+#             # GET LATEST RUNNING BATCH
+#             # =====================================================
+
+#             running_batch = (
+#                 StageBatch.objects
+#                 .filter(
+#                     stage=stage,
+#                     status="RUNNING",
+#                 )
+#                 .order_by(
+#                     "-created_at",
+#                 )
+#                 .first()
+#             )
+
+#             # =====================================================
+#             # IF NO RUNNING BATCH, GET LATEST BATCH
+#             # =====================================================
+
+#             if running_batch:
+
+#                 stage_batch = running_batch
+
+#             else:
+
+#                 stage_batch = (
+#                     StageBatch.objects
+#                     .filter(
+#                         stage=stage,
+#                     )
+#                     .order_by(
+#                         "-created_at",
+#                     )
+#                     .first()
+#                 )
+
+#             # =====================================================
+#             # NO BATCH FOUND
+#             # =====================================================
+
+#             if not stage_batch:
+
+#                 return Response(
+#                     {
+#                         "success": True,
+#                         "message": (
+#                             "No stage batch execution found."
+#                         ),
+#                         "data": {
+#                             "stage_id": stage.id,
+#                             "stage_name": stage.name,
+#                             "stage_type": stage.stage_type,
+#                             "status": "NOT_STARTED",
+#                             "batch_id": None,
+#                             "batch_number": None,
+#                             "started_at": None,
+#                             "completed_at": None,
+#                             "equipment": [],
+#                             "processes": [],
+#                         },
+#                     },
+#                     status=status.HTTP_200_OK,
+#                 )
+
+#             # =====================================================
+#             # GET STAGE EQUIPMENT
+#             # =====================================================
+
+#             stage_equipments = (
+#                 stage.equipments
+#                 .filter(
+#                     is_active=True,
+#                 )
+#                 .select_related(
+#                     "equipment_type",
+#                 )
+#                 .all()
+#             )
+
+#             # =====================================================
+#             # PREPARE GLOBAL EQUIPMENT DATA
+#             # =====================================================
+
+#             equipment_data = []
+
+#             for equipment in stage_equipments:
+
+#                 equipment_data.append(
+#                     {
+#                         "id": equipment.id,
+
+#                         "name": equipment.name,
+
+#                         "code": equipment.code,
+
+#                         "equipment_type": (
+#                             equipment.equipment_type.name
+#                         ),
+
+#                         # -------------------------------------------------
+#                         # GLOBAL/CURRENT EQUIPMENT STATUS
+#                         # -------------------------------------------------
+
+#                         "status": equipment.status,
+
+#                         "current_state": (
+#                             equipment.current_state
+#                         ),
+
+#                         # -------------------------------------------------
+#                         # Equipment timing configuration/runtime
+#                         # -------------------------------------------------
+
+#                         "start_time": (
+#                             equipment.start_time
+#                         ),
+
+#                         "end_time": (
+#                             equipment.end_time
+#                         ),
+
+#                         "duration_seconds": (
+#                             equipment.duration_seconds
+#                         ),
+#                     }
+#                 )
+
+#             # =====================================================
+#             # GET PROCESS EXECUTIONS
+#             # =====================================================
+
+#             process_executions = (
+#                 StageBatchProcessExecution.objects
+#                 .filter(
+#                     stage_batch=stage_batch,
+#                 )
+#                 .select_related(
+#                     "process",
+#                 )
+#                 .prefetch_related(
+#                     "equipment_executions__equipment__equipment_type",
+#                 )
+#                 .order_by(
+#                     "process__sequence",
+#                 )
+#             )
+
+#             # =====================================================
+#             # PREPARE PROCESS DATA
+#             # =====================================================
+
+#             processes_data = []
+
+#             for process_execution in process_executions:
+
+#                 # -------------------------------------------------
+#                 # Equipment used by THIS process execution.
+#                 #
+#                 # IMPORTANT:
+#                 #
+#                 # We are NOT reading process equipment state from
+#                 # Equipment.current_state.
+#                 #
+#                 # We are reading:
+#                 #
+#                 # StageBatchProcessEquipmentExecution.state
+#                 #
+#                 # which stores the state produced by this process.
+#                 # -------------------------------------------------
+
+#                 process_equipment_data = []
+
+#                 equipment_executions = (
+#                     process_execution
+#                     .equipment_executions
+#                     .all()
+#                 )
+
+#                 for equipment_execution in equipment_executions:
+
+#                     equipment = (
+#                         equipment_execution.equipment
+#                     )
+
+#                     process_equipment_data.append(
+#                         {
+#                             "id": equipment.id,
+
+#                             "name": equipment.name,
+
+#                             "code": equipment.code,
+
+#                             "equipment_type": (
+#                                 equipment
+#                                 .equipment_type
+#                                 .name
+#                             ),
+
+#                             # -------------------------------------------------
+#                             # PROCESS-SPECIFIC STATE
+#                             #
+#                             # This is the important new field.
+#                             # -------------------------------------------------
+
+#                             "state": (
+#                                 equipment_execution.state
+#                             ),
+
+#                             # -------------------------------------------------
+#                             # Process equipment execution timing
+#                             # -------------------------------------------------
+
+#                             "started_at": (
+#                                 equipment_execution.started_at
+#                             ),
+
+#                             "completed_at": (
+#                                 equipment_execution.completed_at
+#                             ),
+
+#                             # -------------------------------------------------
+#                             # GLOBAL/CURRENT EQUIPMENT INFORMATION
+#                             #
+#                             # This can be different from "state".
+#                             # -------------------------------------------------
+
+#                             "current_state": (
+#                                 equipment.current_state
+#                             ),
+
+#                             "status": (
+#                                 equipment.status
+#                             ),
+
+#                             "duration_seconds": (
+#                                 equipment.duration_seconds
+#                             ),
+#                         }
+#                     )
+
+#                 # -------------------------------------------------
+#                 # Add process information.
+#                 # -------------------------------------------------
+
+#                 processes_data.append(
+#                     {
+#                         "execution_id": (
+#                             process_execution.id
+#                         ),
+
+#                         "process_id": (
+#                             process_execution.process_id
+#                         ),
+
+#                         "process_name": (
+#                             process_execution
+#                             .process
+#                             .name
+#                         ),
+
+#                         "sequence": (
+#                             process_execution
+#                             .process
+#                             .sequence
+#                         ),
+
+#                         "status": (
+#                             process_execution.status
+#                         ),
+
+#                         "started_at": (
+#                             process_execution.started_at
+#                         ),
+
+#                         "completed_at": (
+#                             process_execution.completed_at
+#                         ),
+
+#                         "actual_duration_seconds": (
+#                             process_execution
+#                             .actual_duration_seconds
+#                         ),
+
+#                         "remarks": (
+#                             process_execution.remarks
+#                         ),
+
+#                         "equipment": (
+#                             process_equipment_data
+#                         ),
+#                     }
+#                 )
+
+#             # =====================================================
+#             # RETURN RESPONSE
+#             # =====================================================
+
+#             return Response(
+#                 {
+#                     "success": True,
+
+#                     "message": (
+#                         "Treatment stage status "
+#                         "retrieved successfully."
+#                     ),
+
+#                     "data": {
+
+#                         # ---------------------------------------------
+#                         # BATCH INFORMATION
+#                         # ---------------------------------------------
+
+#                         "batch_id": (
+#                             stage_batch.id
+#                         ),
+
+#                         "batch_number": (
+#                             stage_batch.batch_number
+#                         ),
+
+#                         # ---------------------------------------------
+#                         # STAGE INFORMATION
+#                         # ---------------------------------------------
+
+#                         "stage_id": stage.id,
+
+#                         "stage_name": (
+#                             stage.name
+#                         ),
+
+#                         "stage_type": (
+#                             stage.stage_type
+#                         ),
+
+#                         # ---------------------------------------------
+#                         # BATCH STATUS
+#                         # ---------------------------------------------
+
+#                         "status": (
+#                             stage_batch.status
+#                         ),
+
+#                         "started_at": (
+#                             stage_batch.started_at
+#                         ),
+
+#                         "completed_at": (
+#                             stage_batch.completed_at
+#                         ),
+
+#                         # ---------------------------------------------
+#                         # CURRENT/GLOBAL EQUIPMENT
+#                         # ---------------------------------------------
+
+#                         "equipment": (
+#                             equipment_data
+#                         ),
+
+#                         # ---------------------------------------------
+#                         # PROCESS EXECUTION
+#                         # ---------------------------------------------
+
+#                         "processes": (
+#                             processes_data
+#                         ),
+#                     },
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as exc:
+
+#             # =====================================================
+#             # UNEXPECTED ERROR
+#             # =====================================================
+
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": (
+#                         "Failed to retrieve treatment "
+#                         "stage status."
+#                     ),
+#                     "error": str(exc),
+#                 },
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+
 
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 
 from treatment_process.models import (
     TreatmentStage,
     StageBatch,
     StageBatchProcessExecution,
+    StageEquipmentConfig,
 )
 
 
@@ -3114,11 +5218,17 @@ class StageBatchStatusView(APIView):
 
     Important distinction:
 
-        Equipment.current_state
-            -> Current/global state of the equipment.
+        StageEquipmentConfig.current_state
+            -> Current/global state of the equipment for this stage.
 
         StageBatchProcessEquipmentExecution.state
             -> State produced by that particular process.
+
+    Equipment.is_active
+        -> Physical equipment availability.
+
+    StageEquipmentConfig.status
+        -> Stage-specific runtime/availability status.
     """
 
     permission_classes = [IsAuthenticated]
@@ -3239,6 +5349,23 @@ class StageBatchStatusView(APIView):
 
             for equipment in stage_equipments:
 
+                # -------------------------------------------------
+                # Get the configuration for this equipment in the
+                # current stage.
+                #
+                # Runtime state and timing now belong to
+                # StageEquipmentConfig.
+                # -------------------------------------------------
+
+                config = (
+                    StageEquipmentConfig.objects
+                    .filter(
+                        stage=stage,
+                        equipment=equipment,
+                    )
+                    .first()
+                )
+
                 equipment_data.append(
                     {
                         "id": equipment.id,
@@ -3252,29 +5379,43 @@ class StageBatchStatusView(APIView):
                         ),
 
                         # -------------------------------------------------
-                        # GLOBAL/CURRENT EQUIPMENT STATUS
+                        # Physical equipment availability
                         # -------------------------------------------------
 
-                        "status": equipment.status,
+                        "is_active": equipment.is_active,
 
-                        "current_state": (
-                            equipment.current_state
+                        # -------------------------------------------------
+                        # Stage-specific runtime configuration
+                        # -------------------------------------------------
+
+                        "status": (
+                            config.status
+                            if config
+                            else None
                         ),
 
-                        # -------------------------------------------------
-                        # Equipment timing configuration/runtime
-                        # -------------------------------------------------
+                        "current_state": (
+                            config.current_state
+                            if config
+                            else None
+                        ),
 
                         "start_time": (
-                            equipment.start_time
+                            config.start_time
+                            if config
+                            else None
                         ),
 
                         "end_time": (
-                            equipment.end_time
+                            config.end_time
+                            if config
+                            else None
                         ),
 
                         "duration_seconds": (
-                            equipment.duration_seconds
+                            config.duration_seconds
+                            if config
+                            else None
                         ),
                     }
                 )
@@ -3373,21 +5514,52 @@ class StageBatchStatusView(APIView):
                             ),
 
                             # -------------------------------------------------
-                            # GLOBAL/CURRENT EQUIPMENT INFORMATION
+                            # STAGE-SPECIFIC EQUIPMENT INFORMATION
                             #
-                            # This can be different from "state".
+                            # The process-specific "state" above comes
+                            # from StageBatchProcessEquipmentExecution.
+                            #
+                            # Runtime/global equipment information now
+                            # comes from StageEquipmentConfig.
                             # -------------------------------------------------
 
                             "current_state": (
-                                equipment.current_state
+                                StageEquipmentConfig.objects
+                                .filter(
+                                    stage=stage,
+                                    equipment=equipment,
+                                )
+                                .values_list(
+                                    "current_state",
+                                    flat=True,
+                                )
+                                .first()
                             ),
 
                             "status": (
-                                equipment.status
+                                StageEquipmentConfig.objects
+                                .filter(
+                                    stage=stage,
+                                    equipment=equipment,
+                                )
+                                .values_list(
+                                    "status",
+                                    flat=True,
+                                )
+                                .first()
                             ),
 
                             "duration_seconds": (
-                                equipment.duration_seconds
+                                StageEquipmentConfig.objects
+                                .filter(
+                                    stage=stage,
+                                    equipment=equipment,
+                                )
+                                .values_list(
+                                    "duration_seconds",
+                                    flat=True,
+                                )
+                                .first()
                             ),
                         }
                     )
@@ -3503,7 +5675,7 @@ class StageBatchStatusView(APIView):
                         ),
 
                         # ---------------------------------------------
-                        # CURRENT/GLOBAL EQUIPMENT
+                        # CURRENT/STAGE-SPECIFIC EQUIPMENT
                         # ---------------------------------------------
 
                         "equipment": (

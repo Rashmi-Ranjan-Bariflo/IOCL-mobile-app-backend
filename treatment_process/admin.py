@@ -8,7 +8,9 @@ from .models import (
     DosingRecord,
     ProcessExecutionLog,
     StageBatch,
-    StageBatchProcessExecution
+    StageBatchProcessExecution,
+    StageBatchProcessEquipmentExecution,
+    StageEquipmentConfig
 )
 
 
@@ -291,3 +293,15 @@ class StageBatchAdmin(admin.ModelAdmin):
 @admin.register(StageBatchProcessExecution)
 class StageBatchProcessExecutionAdmin(admin.ModelAdmin):
     list_display = ("id","stage_batch","process","status","started_at")
+
+
+
+@admin.register(StageBatchProcessEquipmentExecution)
+class StageBatchProcessEquipmentExecutionAdmin(admin.ModelAdmin):
+    list_display = ("id","stage_batch_process_execution", "equipment","state","status")
+
+
+
+@admin.register(StageEquipmentConfig)
+class StageEquipmentConfigAdmin(admin.ModelAdmin):
+    list_display = ("id","equipment","stage","duration_seconds","current_state","status","start_time","end_time","is_active")

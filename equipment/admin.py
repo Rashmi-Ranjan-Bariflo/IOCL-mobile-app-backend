@@ -35,6 +35,10 @@ class EquipmentAdmin(admin.ModelAdmin):
         "name",
         "code",
         "equipment_type",
+        "description",
+        "serial_number",
+        "duration_seconds",
+        "current_state",
         "get_stages",  # ← Added
         "status",
         "is_active",
