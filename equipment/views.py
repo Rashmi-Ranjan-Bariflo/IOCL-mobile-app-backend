@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 
 from .models import (
+    EquipmentTest,
     EquipmentType,
     Equipment,
 )
@@ -936,3 +937,193 @@ class SensorListView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ==========================================================
+#           EQUIPMENT MANUAL LOG BY EQUIPMENT ID
+# ==========================================================
+class EquipmentManualLogByEquipmentView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, equipment_id):
+
+        # Check equipment exists
+        equipment = get_object_or_404(Equipment, id=equipment_id)
+
+        logs = (
+            EquipmentManualLog.objects.select_related(
+                "equipment", "stage", "performed_by"
+            )
+            .filter(equipment_id=equipment_id)
+            .order_by("-started_at")
+        )
+
+        action = request.query_params.get("action")
+        stage_id = request.query_params.get("stage_id")
+
+        if action:
+            logs = logs.filter(action=action.upper())
+
+        if stage_id:
+            logs = logs.filter(stage_id=stage_id)
+
+        data = []
+        for log in logs:
+            data.append(
+                {
+                    "id": log.id,
+                    "equipment": {
+                        "id": log.equipment.id,
+                        "name": log.equipment.name,
+                        "code": log.equipment.code,
+                    },
+                    "stage": log.stage.name if log.stage else None,
+                    "action": log.action,
+                    "started_at": log.started_at,
+                    "ended_at": log.ended_at,
+                    "duration_seconds": log.duration_seconds,
+                    "performed_by": getattr(
+                        log.performed_by, "username", str(log.performed_by)
+                    ),
+                    "created_at": log.created_at,
+                }
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Equipment manual logs retrieved successfully.",
+                "equipment": {
+                    "id": equipment.id,
+                    "name": equipment.name,
+                    "code": equipment.code,
+                },
+                "count": len(data),
+                "data": data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class StageEquipmentsDurationView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, stage_id):
+
+        stage = get_object_or_404(TreatmentStage, id=stage_id)
+
+        equipments = stage.equipments.select_related("equipment_type").all()
+
+        data = []
+
+        for eq in equipments:
+
+            latest_log = (
+                EquipmentManualLog.objects.filter(equipment_id=eq.id, action="ON")
+                .order_by("-started_at")
+                .first()
+            )
+
+            duration_seconds = 0
+            is_running = False
+            started_at = None
+            ended_at = None
+
+            if latest_log:
+
+                started_at = latest_log.started_at
+                ended_at = latest_log.ended_at
+
+                if latest_log.ended_at is None:
+
+                    duration_seconds = int(
+                        (timezone.now() - latest_log.started_at).total_seconds()
+                    )
+
+                    is_running = True
+
+                else:
+
+                    duration_seconds = latest_log.duration_seconds or 0
+
+                    is_running = False
+
+                    self.create_or_update_equipment_test(
+                        equipment=eq,
+                        stage=stage,
+                        manual_log=latest_log,
+                        user=request.user,
+                    )
+
+            data.append(
+                {
+                    "id": eq.id,
+                    "name": eq.name,
+                    "code": eq.code,
+                    "equipment_type": (
+                        eq.equipment_type.name if eq.equipment_type else None
+                    ),
+                    "current_state": eq.current_state,
+                    "status": eq.status,
+                    "is_running": is_running,
+                    "latest_duration_seconds": duration_seconds,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                }
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Equipment durations under stage " "retrieved successfully."
+                ),
+                "stage": {
+                    "id": stage.id,
+                    "name": stage.name,
+                },
+                "count": len(data),
+                "data": data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ==========================================================
+    # CREATE / UPDATE EQUIPMENT TEST
+    # ==========================================================
+
+    def create_or_update_equipment_test(self, equipment, stage, manual_log, user):
+
+        test, created = EquipmentTest.objects.get_or_create(
+            equipment=equipment,
+            stage=stage,
+            tested_by=user,
+            start_time=manual_log.started_at,
+            defaults={
+                "end_time": manual_log.ended_at,
+                "duration_seconds": (manual_log.duration_seconds or 0),
+                "status": "COMPLETED",
+                "is_merged": False,
+            },
+        )
+
+        if not created:
+
+            test.end_time = manual_log.ended_at
+
+            test.duration_seconds = manual_log.duration_seconds or 0
+
+            test.status = "COMPLETED"
+
+            test.save(
+                update_fields=[
+                    "end_time",
+                    "duration_seconds",
+                    "status",
+                    "updated_at",
+                ]
+            )
+
+        return test

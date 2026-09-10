@@ -1,10 +1,12 @@
 from django.urls import path
 from .views import (
+    EquipmentManualLogByEquipmentView,
     EquipmentTypeListCreateView,
     EquipmentTypeDetailView,
     EquipmentListCreateView,
     EquipmentDetailView,
     SensorListView,
+    StageEquipmentsDurationView,
     ValveOnView, ValveOffView, MotorOnView, MotorOffView
 )
 
@@ -31,5 +33,8 @@ urlpatterns = [
     path("motor/<int:equipment_id>/off/", MotorOffView.as_view(), name="motor-off"),
 
     path("sensors/", SensorListView.as_view(), name="sensor-list"),
+
+    path("manual-logs/<int:equipment_id>/", EquipmentManualLogByEquipmentView.as_view()),
+    path("merge/<int:stage_id>/", StageEquipmentsDurationView.as_view()),
 
 ]
