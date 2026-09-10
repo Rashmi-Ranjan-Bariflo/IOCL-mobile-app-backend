@@ -2954,66 +2954,748 @@ from treatment_process.models import (
 
 
 
+# from django.utils import timezone
+# from datetime import timedelta
+
+# from treatment_process.models import (
+#     StageBatchProcessExecution,
+#     StageBatchProcessEquipmentExecution,
+# )
+
+
+# class StageExecutionService:
+#     """
+#     Executes a TreatmentStage without blocking the server.
+
+#     Main rules:
+
+#     1. Processes execute according to sequence.
+
+#     2. Process.equipments defines which equipment
+#        belongs to the process.
+
+#     3. Equipment.current_state determines the
+#        next operation:
+
+#            OFF -> ON
+#            ON  -> OFF
+
+#     4. When equipment is OFF:
+#            Turn it ON.
+#            Record the ON time.
+#            Complete the process operation.
+
+#     5. When equipment is ON:
+#            The equipment is about to be turned OFF.
+
+#            Before turning it OFF, check whether the
+#            configured duration has been completed.
+
+#     6. If the required duration has NOT completed:
+#            Create a WAITING execution.
+#            Store scheduled_at.
+#            Stop the current process temporarily.
+
+#     7. The background worker checks WAITING executions.
+
+#     8. When scheduled_at is reached:
+#            Turn equipment OFF.
+#            Complete the equipment execution.
+#            Continue the process.
+
+#     9. duration_seconds therefore represents the minimum
+#        time the equipment should remain ON.
+
+#     10. duration_seconds does NOT automatically turn
+#         equipment OFF after the ON process.
+
+#     11. Different stages can execute independently.
+
+#     12. STOPPED batches must never continue execution.
+
+#     13. No equipment-duration time.sleep() is used.
+#     """
+
+#     def __init__(self, stage_batch):
+#         self.stage_batch = stage_batch
+
+#     # =========================================================
+#     # EXECUTE STAGE
+#     # =========================================================
+
+#     def execute(self):
+
+#         try:
+
+#             # -------------------------------------------------
+#             # A stopped / completed / failed batch must never
+#             # continue execution.
+#             # -------------------------------------------------
+
+#             if self.stage_batch.status != "RUNNING":
+
+#                 return self.stage_batch.status
+
+#             # -------------------------------------------------
+#             # Check whether there is already a RUNNING process.
+#             #
+#             # This is important when a process was waiting for
+#             # an equipment duration and now needs to continue.
+#             # -------------------------------------------------
+
+#             running_process_execution = (
+#                 StageBatchProcessExecution.objects
+#                 .filter(
+#                     stage_batch=self.stage_batch,
+#                     status="RUNNING",
+#                 )
+#                 .select_related("process")
+#                 .first()
+#             )
+
+#             if running_process_execution:
+
+#                 return self.execute_process(
+#                     running_process_execution
+#                 )
+
+#             # -------------------------------------------------
+#             # Find the next PENDING process.
+#             # -------------------------------------------------
+
+#             process_execution = (
+#                 StageBatchProcessExecution.objects
+#                 .filter(
+#                     stage_batch=self.stage_batch,
+#                     status="PENDING",
+#                 )
+#                 .select_related("process")
+#                 .prefetch_related("process__equipments")
+#                 .order_by("process__sequence")
+#                 .first()
+#             )
+
+#             # -------------------------------------------------
+#             # No PENDING process means the stage is complete.
+#             # -------------------------------------------------
+
+#             if not process_execution:
+
+#                 self.stage_batch.complete_batch()
+
+#                 self.deactivate_stage_equipment()
+
+#                 return "COMPLETED"
+
+#             # -------------------------------------------------
+#             # Execute the process.
+#             # -------------------------------------------------
+
+#             return self.execute_process(
+#                 process_execution
+#             )
+
+#         except Exception as exc:
+
+#             # -------------------------------------------------
+#             # Do not overwrite STOPPED with FAILED.
+#             # -------------------------------------------------
+
+#             if self.stage_batch.status == "RUNNING":
+
+#                 self.stage_batch.fail_batch()
+
+#                 self.deactivate_stage_equipment()
+
+#             raise exc
+
+#     # =========================================================
+#     # EXECUTE ONE PROCESS
+#     # =========================================================
+
+#     def execute_process(
+#         self,
+#         process_execution,
+#     ):
+
+#         # -----------------------------------------------------
+#         # A stopped batch must not continue.
+#         # -----------------------------------------------------
+
+#         if self.stage_batch.status != "RUNNING":
+
+#             return self.stage_batch.status
+
+#         process = process_execution.process
+
+#         # -----------------------------------------------------
+#         # Start process only if it is still PENDING.
+#         #
+#         # If already RUNNING, we are continuing a process
+#         # after a WAITING equipment execution.
+#         # -----------------------------------------------------
+
+#         if process_execution.status == "PENDING":
+
+#             process_execution.start_process()
+
+#         elif process_execution.status != "RUNNING":
+
+#             return process_execution.status
+
+#         try:
+
+#             # -------------------------------------------------
+#             # Get active equipment configured for this process.
+#             # -------------------------------------------------
+
+#             equipments = list(
+#                 process.equipments
+#                 .filter(
+#                     is_active=True,
+#                 )
+#                 .select_related(
+#                     "equipment_type",
+#                 )
+#                 .order_by("id")
+#                 .all()
+#             )
+
+#             if not equipments:
+
+#                 raise ValueError(
+#                     f"No equipment configured for process "
+#                     f"'{process.name}'."
+#                 )
+
+#             # -------------------------------------------------
+#             # Find equipment executions that have already
+#             # completed for this process.
+#             #
+#             # This prevents completed equipment from being
+#             # executed again if the process is resumed.
+#             # -------------------------------------------------
+
+#             completed_equipment_ids = set(
+#                 StageBatchProcessEquipmentExecution.objects
+#                 .filter(
+#                     stage_batch_process_execution=process_execution,
+#                     status="COMPLETED",
+#                 )
+#                 .values_list(
+#                     "equipment_id",
+#                     flat=True,
+#                 )
+#             )
+
+#             # -------------------------------------------------
+#             # Execute remaining equipment one by one.
+#             # -------------------------------------------------
+
+#             for equipment in equipments:
+
+#                 if equipment.id in completed_equipment_ids:
+
+#                     continue
+
+#                 # -------------------------------------------------
+#                 # Refresh equipment from database.
+#                 #
+#                 # This is important because its state may have
+#                 # changed during another worker operation.
+#                 # -------------------------------------------------
+
+#                 equipment.refresh_from_db()
+
+#                 # -------------------------------------------------
+#                 # Check batch status before every equipment.
+#                 # -------------------------------------------------
+
+#                 self.stage_batch.refresh_from_db(
+#                     fields=["status"]
+#                 )
+
+#                 if self.stage_batch.status != "RUNNING":
+
+#                     return self.stage_batch.status
+
+#                 result = self.execute_equipment(
+#                     process_execution,
+#                     equipment,
+#                 )
+
+#                 # -------------------------------------------------
+#                 # Equipment is waiting for its minimum ON duration.
+#                 #
+#                 # Do not continue to the next equipment or process.
+#                 # -------------------------------------------------
+
+#                 if result == "WAITING":
+
+#                     return "WAITING"
+
+#             # -------------------------------------------------
+#             # Check batch status before completing process.
+#             # -------------------------------------------------
+
+#             self.stage_batch.refresh_from_db(
+#                 fields=["status"]
+#             )
+
+#             if self.stage_batch.status != "RUNNING":
+
+#                 return self.stage_batch.status
+
+#             # -------------------------------------------------
+#             # All equipment operations completed.
+#             # -------------------------------------------------
+
+#             process_execution.complete_process()
+
+#             # -------------------------------------------------
+#             # Continue to next process.
+#             # -------------------------------------------------
+
+#             return self.execute()
+
+#         except Exception as exc:
+
+#             self.stage_batch.refresh_from_db(
+#                 fields=["status"]
+#             )
+
+#             if (
+#                 self.stage_batch.status == "RUNNING"
+#                 and process_execution.status == "RUNNING"
+#             ):
+
+#                 process_execution.fail_process(
+#                     remarks=str(exc)
+#                 )
+
+#             raise
+
+#     # =========================================================
+#     # EXECUTE ONE EQUIPMENT
+#     # =========================================================
+
+#     def execute_equipment(
+#         self,
+#         process_execution,
+#         equipment,
+#     ):
+
+#         # -----------------------------------------------------
+#         # Validate equipment.
+#         # -----------------------------------------------------
+
+#         if not equipment.is_active:
+
+#             raise ValueError(
+#                 f"Equipment '{equipment.name}' is inactive."
+#             )
+
+#         if equipment.status in [
+#             "FAULT",
+#             "MAINTENANCE",
+#         ]:
+
+#             raise ValueError(
+#                 f"Equipment '{equipment.name}' is "
+#                 f"{equipment.status}."
+#             )
+
+#         # -----------------------------------------------------
+#         # Make sure batch is still running.
+#         # -----------------------------------------------------
+
+#         self.stage_batch.refresh_from_db(
+#             fields=["status"]
+#         )
+
+#         if self.stage_batch.status != "RUNNING":
+
+#             return self.stage_batch.status
+
+#         # -----------------------------------------------------
+#         # =====================================================
+#         # EQUIPMENT IS OFF
+#         # =====================================================
+#         #
+#         # OFF -> ON
+#         #
+#         # This is the START operation.
+#         #
+#         # IMPORTANT:
+#         #
+#         # We DO NOT schedule an automatic OFF here.
+#         #
+#         # The equipment remains ON until another process
+#         # finds the same equipment.
+#         # -----------------------------------------------------
+
+#         if equipment.current_state == "OFF":
+
+#             equipment_execution = (
+#                 StageBatchProcessEquipmentExecution.objects.create(
+#                     stage_batch_process_execution=process_execution,
+#                     equipment=equipment,
+#                     state=None,
+#                 )
+#             )
+
+#             equipment_execution.start_execution()
+
+#             try:
+
+#                 self.turn_equipment_on(
+#                     equipment
+#                 )
+
+#                 equipment_execution.complete_execution(
+#                     state="ON",
+#                 )
+
+#                 print(
+#                     f"Equipment ON: "
+#                     f"{equipment.name}"
+#                 )
+
+#                 return "COMPLETED"
+
+#             except Exception as exc:
+
+#                 equipment_execution.fail_execution(
+#                     remarks=str(exc)
+#                 )
+
+#                 raise
+
+#         # =====================================================
+#         # EQUIPMENT IS ON
+#         # =====================================================
+#         #
+#         # ON -> OFF
+#         #
+#         # Before turning OFF, check whether the configured
+#         # duration has elapsed.
+#         #
+#         # If not elapsed:
+#         #
+#         #     WAITING
+#         #
+#         # Worker will come back later.
+#         # =====================================================
+
+#         elif equipment.current_state == "ON":
+
+#             # -------------------------------------------------
+#             # If duration is configured, determine whether
+#             # the minimum ON duration has completed.
+#             # -------------------------------------------------
+
+#             if equipment.duration_seconds is not None:
+
+#                 if equipment.start_time is None:
+
+#                     raise ValueError(
+#                         f"Equipment '{equipment.name}' has "
+#                         f"duration configured but start_time "
+#                         f"is missing."
+#                     )
+
+#                 scheduled_at = (
+#                     self.get_scheduled_time(
+#                         equipment
+#                     )
+#                 )
+
+#                 # -------------------------------------------------
+#                 # Required duration has NOT completed.
+#                 # -------------------------------------------------
+
+#                 if timezone.now() < scheduled_at:
+
+#                     equipment_execution = (
+#                         StageBatchProcessEquipmentExecution.objects.create(
+#                             stage_batch_process_execution=process_execution,
+#                             equipment=equipment,
+#                             state="ON",
+#                         )
+#                     )
+
+#                     equipment_execution.start_execution()
+
+#                     equipment_execution.wait_execution(
+#                         scheduled_at
+#                     )
+
+#                     print(
+#                         f"Equipment '{equipment.name}' "
+#                         f"is still ON."
+#                     )
+
+#                     print(
+#                         f"Waiting until: "
+#                         f"{scheduled_at}"
+#                     )
+
+#                     return "WAITING"
+
+#             # -------------------------------------------------
+#             # Required duration has completed.
+#             #
+#             # OR equipment has no duration configured.
+#             #
+#             # Now perform:
+#             #
+#             # ON -> OFF
+#             # -------------------------------------------------
+
+#             equipment_execution = (
+#                 StageBatchProcessEquipmentExecution.objects.create(
+#                     stage_batch_process_execution=process_execution,
+#                     equipment=equipment,
+#                     state="ON",
+#                 )
+#             )
+
+#             equipment_execution.start_execution()
+
+#             try:
+
+#                 self.turn_equipment_off(
+#                     equipment
+#                 )
+
+#                 equipment_execution.complete_execution(
+#                     state="OFF",
+#                 )
+
+#                 print(
+#                     f"Equipment OFF: "
+#                     f"{equipment.name}"
+#                 )
+
+#                 return "COMPLETED"
+
+#             except Exception as exc:
+
+#                 equipment_execution.fail_execution(
+#                     remarks=str(exc)
+#                 )
+
+#                 raise
+
+#         # =====================================================
+#         # INVALID STATE
+#         # =====================================================
+
+#         else:
+
+#             raise ValueError(
+#                 f"Invalid current state "
+#                 f"'{equipment.current_state}' for "
+#                 f"equipment '{equipment.name}'."
+#             )
+
+#     # =========================================================
+#     # TURN EQUIPMENT ON
+#     # =========================================================
+
+#     def turn_equipment_on(
+#         self,
+#         equipment,
+#     ):
+
+#         # -----------------------------------------------------
+#         # Change equipment state.
+#         # -----------------------------------------------------
+
+#         equipment.current_state = "ON"
+
+#         # -----------------------------------------------------
+#         # Record ON time.
+#         #
+#         # This is the beginning of the actual running period.
+#         # -----------------------------------------------------
+
+#         equipment.start_time = timezone.now().time()
+
+#         # -----------------------------------------------------
+#         # There is no OFF time yet.
+#         # -----------------------------------------------------
+
+#         equipment.end_time = None
+
+#         equipment.save(
+#             update_fields=[
+#                 "current_state",
+#                 "start_time",
+#                 "end_time",
+#                 "updated_at",
+#             ]
+#         )
+
+#     # =========================================================
+#     # TURN EQUIPMENT OFF
+#     # =========================================================
+
+#     def turn_equipment_off(
+#         self,
+#         equipment,
+#     ):
+
+#         # -----------------------------------------------------
+#         # Change equipment state.
+#         # -----------------------------------------------------
+
+#         equipment.current_state = "OFF"
+
+#         # -----------------------------------------------------
+#         # Record OFF time.
+#         # -----------------------------------------------------
+
+#         equipment.end_time = timezone.now().time()
+
+#         equipment.save(
+#             update_fields=[
+#                 "current_state",
+#                 "end_time",
+#                 "updated_at",
+#             ]
+#         )
+
+#     # =========================================================
+#     # GET SCHEDULED OFF TIME
+#     # =========================================================
+
+#     def get_scheduled_time(
+#         self,
+#         equipment,
+#     ):
+
+#         # -----------------------------------------------------
+#         # Current timezone-aware datetime.
+#         # -----------------------------------------------------
+
+#         now = timezone.now()
+
+#         # -----------------------------------------------------
+#         # Equipment.start_time is currently a TimeField.
+#         #
+#         # Convert it into today's datetime.
+#         # -----------------------------------------------------
+
+#         start_datetime = timezone.make_aware(
+#             timezone.datetime.combine(
+#                 now.date(),
+#                 equipment.start_time,
+#             ),
+#             timezone.get_current_timezone(),
+#         )
+
+#         # -----------------------------------------------------
+#         # Handle midnight crossing.
+#         #
+#         # If today's start time is in the future relative
+#         # to now, the equipment was started yesterday.
+#         # -----------------------------------------------------
+
+#         if start_datetime > now:
+
+#             start_datetime -= timedelta(
+#                 days=1
+#             )
+
+#         # -----------------------------------------------------
+#         # Add configured duration.
+#         #
+#         # This represents the earliest time at which the
+#         # equipment can be turned OFF.
+#         # -----------------------------------------------------
+
+#         scheduled_at = (
+#             start_datetime
+#             + timedelta(
+#                 seconds=equipment.duration_seconds
+#             )
+#         )
+
+#         return scheduled_at
+
+#     # =========================================================
+#     # DEACTIVATE STAGE EQUIPMENT
+#     # =========================================================
+
+#     def deactivate_stage_equipment(self):
+
+#         stage = self.stage_batch.stage
+
+#         # -----------------------------------------------------
+#         # When the complete stage finishes:
+#         #
+#         # 1. Equipment becomes OFF.
+#         # 2. Equipment becomes INACTIVE.
+#         # -----------------------------------------------------
+
+#         stage.equipments.filter(
+#             is_active=True,
+#         ).update(
+#             current_state="OFF",
+#             status="INACTIVE",
+#         )
+
+
+
+
+
+
+from datetime import datetime, timedelta
+
+from django.db import transaction
 from django.utils import timezone
-from datetime import timedelta
 
 from treatment_process.models import (
     StageBatchProcessExecution,
     StageBatchProcessEquipmentExecution,
+    StageEquipmentConfig,
 )
 
 
 class StageExecutionService:
     """
-    Executes a TreatmentStage without blocking the server.
+    Handles automatic execution of a TreatmentStage.
 
-    Main rules:
+    IMPORTANT:
+    The business flow is based on the existing process configuration.
 
-    1. Processes execute according to sequence.
+    Process.equipments
+        ↓
+    determines which equipment is used by the process.
 
-    2. Process.equipments defines which equipment
-       belongs to the process.
+    StageEquipmentConfig
+        ↓
+    stores the runtime state/configuration of that equipment
+    for this particular stage.
 
-    3. Equipment.current_state determines the
-       next operation:
+    Equipment
+        ↓
+    stores the master equipment information.
 
-           OFF -> ON
-           ON  -> OFF
+    Equipment.is_active
+        ↓
+    is used to validate whether the physical equipment is available.
 
-    4. When equipment is OFF:
-           Turn it ON.
-           Record the ON time.
-           Complete the process operation.
+    Runtime fields are NOT read from Equipment anymore.
 
-    5. When equipment is ON:
-           The equipment is about to be turned OFF.
+    Runtime fields are read from StageEquipmentConfig:
 
-           Before turning it OFF, check whether the
-           configured duration has been completed.
-
-    6. If the required duration has NOT completed:
-           Create a WAITING execution.
-           Store scheduled_at.
-           Stop the current process temporarily.
-
-    7. The background worker checks WAITING executions.
-
-    8. When scheduled_at is reached:
-           Turn equipment OFF.
-           Complete the equipment execution.
-           Continue the process.
-
-    9. duration_seconds therefore represents the minimum
-       time the equipment should remain ON.
-
-    10. duration_seconds does NOT automatically turn
-        equipment OFF after the ON process.
-
-    11. Different stages can execute independently.
-
-    12. STOPPED batches must never continue execution.
-
-    13. No equipment-duration time.sleep() is used.
+        status
+        current_state
+        duration_seconds
+        start_time
+        end_time
     """
 
     def __init__(self, stage_batch):
@@ -3024,23 +3706,40 @@ class StageExecutionService:
     # =========================================================
 
     def execute(self):
+        """
+        Continue execution of the stage.
+
+        The method can be called:
+
+        1. When the stage starts.
+        2. When a waiting equipment duration completes.
+        3. When the worker checks a running stage.
+
+        The method does NOT use time.sleep().
+
+        If a process contains a timed equipment which is waiting,
+        the worker will later call this method again to continue
+        the same RUNNING process.
+        """
 
         try:
 
             # -------------------------------------------------
-            # A stopped / completed / failed batch must never
-            # continue execution.
+            # STOP / COMPLETE / FAIL protection
             # -------------------------------------------------
 
-            if self.stage_batch.status != "RUNNING":
+            self.stage_batch.refresh_from_db(
+                fields=["status"]
+            )
 
+            if self.stage_batch.status != "RUNNING":
                 return self.stage_batch.status
 
             # -------------------------------------------------
-            # Check whether there is already a RUNNING process.
+            # Check whether a process is already RUNNING.
             #
-            # This is important when a process was waiting for
-            # an equipment duration and now needs to continue.
+            # This happens when a process was paused because
+            # one of its equipment operations was WAITING.
             # -------------------------------------------------
 
             running_process_execution = (
@@ -3049,7 +3748,9 @@ class StageExecutionService:
                     stage_batch=self.stage_batch,
                     status="RUNNING",
                 )
-                .select_related("process")
+                .select_related(
+                    "process",
+                )
                 .first()
             )
 
@@ -3060,7 +3761,10 @@ class StageExecutionService:
                 )
 
             # -------------------------------------------------
-            # Find the next PENDING process.
+            # Get the next PENDING process.
+            #
+            # Processes are always executed according to
+            # TreatmentProcess.sequence.
             # -------------------------------------------------
 
             process_execution = (
@@ -3069,14 +3773,21 @@ class StageExecutionService:
                     stage_batch=self.stage_batch,
                     status="PENDING",
                 )
-                .select_related("process")
-                .prefetch_related("process__equipments")
-                .order_by("process__sequence")
+                .select_related(
+                    "process",
+                )
+                .prefetch_related(
+                    "process__equipments",
+                )
+                .order_by(
+                    "process__sequence",
+                )
                 .first()
             )
 
             # -------------------------------------------------
-            # No PENDING process means the stage is complete.
+            # No pending process means the entire stage
+            # has completed.
             # -------------------------------------------------
 
             if not process_execution:
@@ -3085,10 +3796,10 @@ class StageExecutionService:
 
                 self.deactivate_stage_equipment()
 
-                return "COMPLETED"
+                return True
 
             # -------------------------------------------------
-            # Execute the process.
+            # Execute the next process.
             # -------------------------------------------------
 
             return self.execute_process(
@@ -3098,8 +3809,12 @@ class StageExecutionService:
         except Exception as exc:
 
             # -------------------------------------------------
-            # Do not overwrite STOPPED with FAILED.
+            # Never overwrite STOPPED with FAILED.
             # -------------------------------------------------
+
+            self.stage_batch.refresh_from_db(
+                fields=["status"]
+            )
 
             if self.stage_batch.status == "RUNNING":
 
@@ -3110,29 +3825,56 @@ class StageExecutionService:
             raise exc
 
     # =========================================================
-    # EXECUTE ONE PROCESS
+    # EXECUTE PROCESS
     # =========================================================
 
     def execute_process(
         self,
         process_execution,
     ):
+        """
+        Execute one TreatmentProcess.
+
+        Equipment is taken ONLY from:
+
+            TreatmentProcess.equipments
+
+        The same equipment may appear in multiple processes.
+
+        Example:
+
+            Process 1
+                Pump -> OFF -> ON
+
+            Process 2
+                Sensor -> OFF -> ON
+
+            Process 3
+                Pump -> ON
+                duration check
+                ↓
+                ON -> OFF
+
+        A process remains RUNNING when an equipment operation
+        is WAITING.
+        """
 
         # -----------------------------------------------------
-        # A stopped batch must not continue.
+        # Check stage status before doing anything.
         # -----------------------------------------------------
+
+        self.stage_batch.refresh_from_db(
+            fields=["status"]
+        )
 
         if self.stage_batch.status != "RUNNING":
-
             return self.stage_batch.status
 
-        process = process_execution.process
-
         # -----------------------------------------------------
-        # Start process only if it is still PENDING.
+        # Start process only if it is PENDING.
         #
-        # If already RUNNING, we are continuing a process
-        # after a WAITING equipment execution.
+        # If already RUNNING, this means we are continuing
+        # a process after a WAITING equipment execution.
         # -----------------------------------------------------
 
         if process_execution.status == "PENDING":
@@ -3143,10 +3885,12 @@ class StageExecutionService:
 
             return process_execution.status
 
+        process = process_execution.process
+
         try:
 
             # -------------------------------------------------
-            # Get active equipment configured for this process.
+            # Get equipment configured for this process.
             # -------------------------------------------------
 
             equipments = list(
@@ -3157,23 +3901,41 @@ class StageExecutionService:
                 .select_related(
                     "equipment_type",
                 )
-                .order_by("id")
-                .all()
+                .order_by(
+                    "id",
+                )
             )
+
+            # -------------------------------------------------
+            # Every process must have at least one active
+            # equipment.
+            # -------------------------------------------------
 
             if not equipments:
 
                 raise ValueError(
-                    f"No equipment configured for process "
-                    f"'{process.name}'."
+                    f"No active equipment configured "
+                    f"for process '{process.name}'."
                 )
 
             # -------------------------------------------------
-            # Find equipment executions that have already
-            # completed for this process.
+            # Find equipment operations that have already
+            # completed for THIS process.
             #
-            # This prevents completed equipment from being
-            # executed again if the process is resumed.
+            # This is important when the process is resumed
+            # after a WAITING equipment operation.
+            #
+            # Example:
+            #
+            # Process 4
+            #     Pump -> WAITING
+            #
+            # Worker:
+            #     Pump -> OFF
+            #     execution -> COMPLETED
+            #
+            # When this method runs again, Pump must NOT
+            # be toggled ON again.
             # -------------------------------------------------
 
             completed_equipment_ids = set(
@@ -3189,26 +3951,22 @@ class StageExecutionService:
             )
 
             # -------------------------------------------------
-            # Execute remaining equipment one by one.
+            # Execute equipment sequentially.
             # -------------------------------------------------
 
             for equipment in equipments:
 
-                if equipment.id in completed_equipment_ids:
+                # -------------------------------------------------
+                # Do not execute an equipment operation twice
+                # when the process is being resumed.
+                # -------------------------------------------------
 
+                if equipment.id in completed_equipment_ids:
                     continue
 
                 # -------------------------------------------------
-                # Refresh equipment from database.
-                #
-                # This is important because its state may have
-                # changed during another worker operation.
-                # -------------------------------------------------
-
-                equipment.refresh_from_db()
-
-                # -------------------------------------------------
-                # Check batch status before every equipment.
+                # Check stage status before every equipment.
+                # This allows STOP to prevent further operations.
                 # -------------------------------------------------
 
                 self.stage_batch.refresh_from_db(
@@ -3216,18 +3974,20 @@ class StageExecutionService:
                 )
 
                 if self.stage_batch.status != "RUNNING":
-
                     return self.stage_batch.status
 
                 result = self.execute_equipment(
-                    process_execution,
-                    equipment,
+                    process_execution=process_execution,
+                    equipment=equipment,
                 )
 
                 # -------------------------------------------------
-                # Equipment is waiting for its minimum ON duration.
+                # If equipment is waiting for its duration,
+                # STOP processing this process.
                 #
-                # Do not continue to the next equipment or process.
+                # The process remains RUNNING.
+                #
+                # The worker will later resume it.
                 # -------------------------------------------------
 
                 if result == "WAITING":
@@ -3235,7 +3995,8 @@ class StageExecutionService:
                     return "WAITING"
 
             # -------------------------------------------------
-            # Check batch status before completing process.
+            # All equipment operations belonging to this
+            # process have completed.
             # -------------------------------------------------
 
             self.stage_batch.refresh_from_db(
@@ -3243,17 +4004,18 @@ class StageExecutionService:
             )
 
             if self.stage_batch.status != "RUNNING":
-
                 return self.stage_batch.status
 
             # -------------------------------------------------
-            # All equipment operations completed.
+            # Mark process as completed.
             # -------------------------------------------------
 
             process_execution.complete_process()
 
             # -------------------------------------------------
-            # Continue to next process.
+            # Immediately continue with the next process.
+            #
+            # There is no sleep here.
             # -------------------------------------------------
 
             return self.execute()
@@ -3263,6 +4025,10 @@ class StageExecutionService:
             self.stage_batch.refresh_from_db(
                 fields=["status"]
             )
+
+            # -------------------------------------------------
+            # Do not overwrite STOPPED.
+            # -------------------------------------------------
 
             if (
                 self.stage_batch.status == "RUNNING"
@@ -3276,7 +4042,7 @@ class StageExecutionService:
             raise
 
     # =========================================================
-    # EXECUTE ONE EQUIPMENT
+    # EXECUTE EQUIPMENT
     # =========================================================
 
     def execute_equipment(
@@ -3284,9 +4050,54 @@ class StageExecutionService:
         process_execution,
         equipment,
     ):
+        """
+        Execute one equipment operation.
+
+        IMPORTANT:
+
+        Equipment.is_active
+            comes from Equipment.
+
+        Everything related to runtime state comes from:
+
+            StageEquipmentConfig
+
+        State transition:
+
+            OFF -> ON
+            ON  -> OFF
+
+        BUT:
+
+        If the equipment is ON and has duration configured,
+        the OFF operation may need to wait.
+
+        Example:
+
+            Process 2:
+                Pump OFF -> ON
+                start_time = 10:00:00
+                duration = 30 seconds
+
+            Process 4:
+                Pump is ON
+                ↓
+                check duration
+                ↓
+                not finished
+                ↓
+                WAITING
+
+            Worker later:
+                duration finished
+                ↓
+                Pump ON -> OFF
+                ↓
+                Process 4 continues
+        """
 
         # -----------------------------------------------------
-        # Validate equipment.
+        # Equipment master validation.
         # -----------------------------------------------------
 
         if not equipment.is_active:
@@ -3295,18 +4106,54 @@ class StageExecutionService:
                 f"Equipment '{equipment.name}' is inactive."
             )
 
-        if equipment.status in [
+        # -----------------------------------------------------
+        # Get runtime configuration for this equipment
+        # in this stage.
+        #
+        # Process equipment does not necessarily need to be
+        # present in stage.equipments, but it MUST have a
+        # StageEquipmentConfig for this stage if it participates
+        # in automatic execution.
+        # -----------------------------------------------------
+
+        config = (
+            StageEquipmentConfig.objects
+            .filter(
+                stage=self.stage_batch.stage,
+                equipment=equipment,
+            )
+            .first()
+        )
+
+        if not config:
+
+            raise ValueError(
+                f"No StageEquipmentConfig found for "
+                f"equipment '{equipment.name}' "
+                f"in stage '{self.stage_batch.stage.name}'."
+            )
+
+        # -----------------------------------------------------
+        # MAINTENANCE / FAULT prevents execution.
+        #
+        # INACTIVE is NOT rejected here.
+        #
+        # The stage START logic activates stage equipment
+        # configurations.
+        # -----------------------------------------------------
+
+        if config.status in [
             "FAULT",
             "MAINTENANCE",
         ]:
 
             raise ValueError(
-                f"Equipment '{equipment.name}' is "
-                f"{equipment.status}."
+                f"Equipment '{equipment.name}' "
+                f"is currently {config.status}."
             )
 
         # -----------------------------------------------------
-        # Make sure batch is still running.
+        # Make sure the stage is still running.
         # -----------------------------------------------------
 
         self.stage_batch.refresh_from_db(
@@ -3314,89 +4161,96 @@ class StageExecutionService:
         )
 
         if self.stage_batch.status != "RUNNING":
-
             return self.stage_batch.status
 
         # -----------------------------------------------------
-        # =====================================================
-        # EQUIPMENT IS OFF
-        # =====================================================
-        #
-        # OFF -> ON
-        #
-        # This is the START operation.
-        #
-        # IMPORTANT:
-        #
-        # We DO NOT schedule an automatic OFF here.
-        #
-        # The equipment remains ON until another process
-        # finds the same equipment.
+        # Create an execution record for THIS process +
+        # equipment combination.
         # -----------------------------------------------------
 
-        if equipment.current_state == "OFF":
-
-            equipment_execution = (
-                StageBatchProcessEquipmentExecution.objects.create(
-                    stage_batch_process_execution=process_execution,
-                    equipment=equipment,
-                    state=None,
-                )
+        equipment_execution = (
+            StageBatchProcessEquipmentExecution.objects.create(
+                stage_batch_process_execution=process_execution,
+                equipment=equipment,
+                state=None,
             )
+        )
 
-            equipment_execution.start_execution()
+        equipment_execution.start_execution()
 
-            try:
+        try:
+
+            # =================================================
+            # EQUIPMENT IS OFF
+            # =================================================
+
+            if config.current_state == "OFF":
+
+                # -------------------------------------------------
+                # Turn equipment ON.
+                #
+                # If duration exists:
+                #
+                #   start_time is recorded
+                #
+                # BUT:
+                #
+                #   DO NOT WAIT HERE.
+                #
+                # The current process completes and the next
+                # process can start.
+                # -------------------------------------------------
 
                 self.turn_equipment_on(
-                    equipment
+                    config=config,
                 )
+
+                # -------------------------------------------------
+                # The equipment operation itself is completed.
+                #
+                # Even if it has a duration, the duration will
+                # be checked when the equipment is encountered
+                # again for the OFF operation.
+                # -------------------------------------------------
 
                 equipment_execution.complete_execution(
                     state="ON",
                 )
 
-                print(
-                    f"Equipment ON: "
-                    f"{equipment.name}"
-                )
-
                 return "COMPLETED"
 
-            except Exception as exc:
+            # =================================================
+            # EQUIPMENT IS ON
+            # =================================================
 
-                equipment_execution.fail_execution(
-                    remarks=str(exc)
-                )
+            elif config.current_state == "ON":
 
-                raise
+                # -------------------------------------------------
+                # If no duration is configured:
+                #
+                # ON -> OFF immediately.
+                # -------------------------------------------------
 
-        # =====================================================
-        # EQUIPMENT IS ON
-        # =====================================================
-        #
-        # ON -> OFF
-        #
-        # Before turning OFF, check whether the configured
-        # duration has elapsed.
-        #
-        # If not elapsed:
-        #
-        #     WAITING
-        #
-        # Worker will come back later.
-        # =====================================================
+                if config.duration_seconds is None:
 
-        elif equipment.current_state == "ON":
+                    self.turn_equipment_off(
+                        config=config,
+                    )
 
-            # -------------------------------------------------
-            # If duration is configured, determine whether
-            # the minimum ON duration has completed.
-            # -------------------------------------------------
+                    equipment_execution.complete_execution(
+                        state="OFF",
+                    )
 
-            if equipment.duration_seconds is not None:
+                    return "COMPLETED"
 
-                if equipment.start_time is None:
+                # -------------------------------------------------
+                # Duration is configured.
+                #
+                # We must check whether the ON duration has
+                # completed.
+                # -------------------------------------------------
+
+                if config.start_time is None:
 
                     raise ValueError(
                         f"Equipment '{equipment.name}' has "
@@ -3404,30 +4258,30 @@ class StageExecutionService:
                         f"is missing."
                     )
 
+                # -------------------------------------------------
+                # Calculate the scheduled OFF time.
+                # -------------------------------------------------
+
                 scheduled_at = (
                     self.get_scheduled_time(
-                        equipment
+                        config=config,
                     )
                 )
 
                 # -------------------------------------------------
-                # Required duration has NOT completed.
+                # Duration has NOT completed.
+                #
+                # Do NOT turn equipment OFF.
+                #
+                # Put this equipment execution into WAITING.
+                #
+                # The worker will check it later.
                 # -------------------------------------------------
 
                 if timezone.now() < scheduled_at:
 
-                    equipment_execution = (
-                        StageBatchProcessEquipmentExecution.objects.create(
-                            stage_batch_process_execution=process_execution,
-                            equipment=equipment,
-                            state="ON",
-                        )
-                    )
-
-                    equipment_execution.start_execution()
-
                     equipment_execution.wait_execution(
-                        scheduled_at
+                        scheduled_at=scheduled_at,
                     )
 
                     print(
@@ -3436,68 +4290,51 @@ class StageExecutionService:
                     )
 
                     print(
-                        f"Waiting until: "
-                        f"{scheduled_at}"
+                        f"Equipment '{equipment.name}' "
+                        f"waiting until {scheduled_at}."
                     )
 
                     return "WAITING"
 
-            # -------------------------------------------------
-            # Required duration has completed.
-            #
-            # OR equipment has no duration configured.
-            #
-            # Now perform:
-            #
-            # ON -> OFF
-            # -------------------------------------------------
-
-            equipment_execution = (
-                StageBatchProcessEquipmentExecution.objects.create(
-                    stage_batch_process_execution=process_execution,
-                    equipment=equipment,
-                    state="ON",
-                )
-            )
-
-            equipment_execution.start_execution()
-
-            try:
+                # -------------------------------------------------
+                # Duration is already completed.
+                #
+                # Turn equipment OFF immediately.
+                # -------------------------------------------------
 
                 self.turn_equipment_off(
-                    equipment
+                    config=config,
                 )
 
                 equipment_execution.complete_execution(
                     state="OFF",
                 )
 
-                print(
-                    f"Equipment OFF: "
-                    f"{equipment.name}"
-                )
-
                 return "COMPLETED"
 
-            except Exception as exc:
+            # =================================================
+            # INVALID STATE
+            # =================================================
 
-                equipment_execution.fail_execution(
-                    remarks=str(exc)
+            else:
+
+                raise ValueError(
+                    f"Invalid current state "
+                    f"'{config.current_state}' for equipment "
+                    f"'{equipment.name}'."
                 )
 
-                raise
+        except Exception as exc:
 
-        # =====================================================
-        # INVALID STATE
-        # =====================================================
+            # -------------------------------------------------
+            # Mark this equipment execution as failed.
+            # -------------------------------------------------
 
-        else:
-
-            raise ValueError(
-                f"Invalid current state "
-                f"'{equipment.current_state}' for "
-                f"equipment '{equipment.name}'."
+            equipment_execution.fail_execution(
+                remarks=str(exc)
             )
+
+            raise
 
     # =========================================================
     # TURN EQUIPMENT ON
@@ -3505,30 +4342,62 @@ class StageExecutionService:
 
     def turn_equipment_on(
         self,
-        equipment,
+        config,
     ):
+        """
+        Turn the stage equipment configuration ON.
+
+        Runtime information is stored on StageEquipmentConfig.
+
+        If duration exists:
+
+            start_time = current time
+            end_time   = None
+
+        We DO NOT wait here.
+        """
+
+        now = timezone.now()
 
         # -----------------------------------------------------
-        # Change equipment state.
+        # Change runtime state.
         # -----------------------------------------------------
 
-        equipment.current_state = "ON"
+        config.current_state = "ON"
 
         # -----------------------------------------------------
-        # Record ON time.
-        #
-        # This is the beginning of the actual running period.
+        # If timing is configured, record the beginning of
+        # the ON cycle.
         # -----------------------------------------------------
 
-        equipment.start_time = timezone.now().time()
+        if config.duration_seconds is not None:
+
+            config.start_time = now.time()
+
+            config.end_time = None
+
+            print(
+                f"Equipment ON with timing: "
+                f"{config.equipment.name} "
+                f"({config.duration_seconds} seconds)"
+            )
+
+        else:
+
+            # -------------------------------------------------
+            # No duration means normal equipment.
+            # -------------------------------------------------
+
+            print(
+                f"Equipment ON without timing: "
+                f"{config.equipment.name}"
+            )
 
         # -----------------------------------------------------
-        # There is no OFF time yet.
+        # Save configuration runtime state.
         # -----------------------------------------------------
 
-        equipment.end_time = None
-
-        equipment.save(
+        config.save(
             update_fields=[
                 "current_state",
                 "start_time",
@@ -3543,27 +4412,42 @@ class StageExecutionService:
 
     def turn_equipment_off(
         self,
-        equipment,
+        config,
     ):
+        """
+        Turn the stage equipment configuration OFF.
+
+        This method is called only when the duration requirement
+        has been satisfied for timed equipment.
+        """
 
         # -----------------------------------------------------
-        # Change equipment state.
+        # Change runtime state.
         # -----------------------------------------------------
 
-        equipment.current_state = "OFF"
+        config.current_state = "OFF"
 
         # -----------------------------------------------------
-        # Record OFF time.
+        # Record the time at which the equipment became OFF.
         # -----------------------------------------------------
 
-        equipment.end_time = timezone.now().time()
+        config.end_time = timezone.now().time()
 
-        equipment.save(
+        # -----------------------------------------------------
+        # Save runtime state.
+        # -----------------------------------------------------
+
+        config.save(
             update_fields=[
                 "current_state",
                 "end_time",
                 "updated_at",
             ]
+        )
+
+        print(
+            f"Equipment OFF: "
+            f"{config.equipment.name}"
         )
 
     # =========================================================
@@ -3572,25 +4456,43 @@ class StageExecutionService:
 
     def get_scheduled_time(
         self,
-        equipment,
+        config,
     ):
+        """
+        Calculate when the equipment's configured duration
+        will finish.
 
-        # -----------------------------------------------------
-        # Current timezone-aware datetime.
-        # -----------------------------------------------------
+        StageEquipmentConfig.start_time is currently a TimeField.
+
+        Example:
+
+            start_time       = 10:00:00
+            duration_seconds = 30
+
+            scheduled_at = 10:00:30
+        """
+
+        if config.start_time is None:
+
+            raise ValueError(
+                f"Equipment '{config.equipment.name}' "
+                f"has no start_time."
+            )
+
+        if config.duration_seconds is None:
+
+            return timezone.now()
 
         now = timezone.now()
 
         # -----------------------------------------------------
-        # Equipment.start_time is currently a TimeField.
-        #
-        # Convert it into today's datetime.
+        # Convert TimeField into today's datetime.
         # -----------------------------------------------------
 
         start_datetime = timezone.make_aware(
-            timezone.datetime.combine(
+            datetime.combine(
                 now.date(),
-                equipment.start_time,
+                config.start_time,
             ),
             timezone.get_current_timezone(),
         )
@@ -3598,8 +4500,8 @@ class StageExecutionService:
         # -----------------------------------------------------
         # Handle midnight crossing.
         #
-        # If today's start time is in the future relative
-        # to now, the equipment was started yesterday.
+        # If the calculated start time is in the future,
+        # the equipment started yesterday.
         # -----------------------------------------------------
 
         if start_datetime > now:
@@ -3610,37 +4512,73 @@ class StageExecutionService:
 
         # -----------------------------------------------------
         # Add configured duration.
-        #
-        # This represents the earliest time at which the
-        # equipment can be turned OFF.
         # -----------------------------------------------------
 
         scheduled_at = (
             start_datetime
             + timedelta(
-                seconds=equipment.duration_seconds
+                seconds=config.duration_seconds
             )
         )
 
         return scheduled_at
 
     # =========================================================
+    # CHECK DURATION
+    # =========================================================
+
+    def is_duration_completed(
+        self,
+        config,
+    ):
+        """
+        Return True when the configured ON duration has finished.
+
+        This method is useful for the worker or other future
+        execution logic.
+        """
+
+        if config.duration_seconds is None:
+            return True
+
+        if config.start_time is None:
+            return False
+
+        scheduled_at = self.get_scheduled_time(
+            config=config,
+        )
+
+        return timezone.now() >= scheduled_at
+
+    # =========================================================
     # DEACTIVATE STAGE EQUIPMENT
     # =========================================================
 
     def deactivate_stage_equipment(self):
+        """
+        Put all equipment belonging to the stage into the
+        final safe state.
+
+        Final state:
+
+            current_state = OFF
+            status        = INACTIVE
+
+        IMPORTANT:
+
+        We use StageEquipmentConfig for runtime fields.
+
+        Equipment.is_active is NOT changed here.
+        """
 
         stage = self.stage_batch.stage
 
         # -----------------------------------------------------
-        # When the complete stage finishes:
-        #
-        # 1. Equipment becomes OFF.
-        # 2. Equipment becomes INACTIVE.
+        # Update stage equipment configurations.
         # -----------------------------------------------------
 
-        stage.equipments.filter(
-            is_active=True,
+        StageEquipmentConfig.objects.filter(
+            stage=stage,
         ).update(
             current_state="OFF",
             status="INACTIVE",
