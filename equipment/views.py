@@ -583,16 +583,30 @@ class ValveOffView(APIView):
         now = timezone.now()
 
         with transaction.atomic():
+
             duration = int((now - open_log.started_at).total_seconds())
 
-            open_log.ended_at = now
-            open_log.duration_seconds = duration
-            open_log.save(update_fields=["ended_at", "duration_seconds"])
+            # ------------------------------------------------------
+            # CREATE NEW OFF LOG
+            # ------------------------------------------------------
+            off_log = EquipmentManualLog.objects.create(
+                equipment=equipment,
+                stage=open_log.stage,
+                action="OFF",
+                started_at=now,
+                ended_at=now,
+                duration_seconds=duration,
+                performed_by=request.user,
+            )
 
+            # ------------------------------------------------------
+            # UPDATE EQUIPMENT STATE
+            # ------------------------------------------------------
             equipment.status = "INACTIVE"
             equipment.current_state = "OFF"
             equipment.end_time = now.time()
             equipment.duration_seconds = duration
+
             equipment.save(
                 update_fields=[
                     "status",
@@ -605,7 +619,7 @@ class ValveOffView(APIView):
 
         return Response(
             {
-                "id": open_log.id,
+                "id": off_log.id,
                 "equipment": {
                     "id": equipment.id,
                     "name": equipment.name,
@@ -614,10 +628,11 @@ class ValveOffView(APIView):
                     "current_state": "OFF",
                 },
                 "action": "OFF",
-                "started_at": open_log.started_at,
-                "ended_at": open_log.ended_at,
-                "duration_seconds": open_log.duration_seconds,
+                "started_at": off_log.started_at,
+                "ended_at": off_log.ended_at,
+                "duration_seconds": off_log.duration_seconds,
                 "status": "INACTIVE",
+                "previous_on_log_id": open_log.id,
             },
             status=status.HTTP_200_OK,
         )
@@ -786,78 +801,182 @@ class MotorOffView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, equipment_id):
+
+        # --------------------------------------------------
+        # GET MOTOR
+        # --------------------------------------------------
         equipment = get_object_or_404(
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
 
-        if (
-            "motor" not in equipment.equipment_type.name.lower()
-            and "pump" not in equipment.equipment_type.name.lower()
-        ):
+        # --------------------------------------------------
+        # CHECK EQUIPMENT TYPE
+        # --------------------------------------------------
+        if not equipment.equipment_type:
+            return Response(
+                {"detail": "Equipment type is not configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        equipment_type = equipment.equipment_type.name.lower()
+
+        if "motor" not in equipment_type and "pump" not in equipment_type:
             return Response(
                 {
-                    "detail": f"This equipment is not a Motor. Current type: {equipment.equipment_type.name}"
+                    "detail": (
+                        f"This equipment is not a Motor. "
+                        f"Current type: {equipment.equipment_type.name}"
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        open_log = (
-            EquipmentManualLog.objects.filter(
-                equipment=equipment,
-                action="ON",
-                ended_at__isnull=True,
-            )
-            .order_by("-started_at")
-            .first()
-        )
+        # --------------------------------------------------
+        # FIND LATEST ACTIVE MOTOR ON LOG
+        #
+        # ON log is never updated with ended_at.
+        # Therefore, check that no OFF log exists after it.
+        # --------------------------------------------------
+        on_logs = EquipmentManualLog.objects.filter(
+            equipment=equipment,
+            action="ON",
+        ).order_by("-started_at")
 
+        open_log = None
+
+        for log in on_logs:
+
+            off_exists = EquipmentManualLog.objects.filter(
+                equipment=equipment,
+                action="OFF",
+                started_at__gte=log.started_at,
+            ).exists()
+
+            if not off_exists:
+                open_log = log
+                break
+
+        # --------------------------------------------------
+        # NO ACTIVE SESSION
+        # --------------------------------------------------
         if not open_log:
             return Response(
                 {"detail": "Motor is already OFF or no active session found"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # --------------------------------------------------
+        # CURRENT TIME
+        # --------------------------------------------------
         now = timezone.now()
+
         stage = open_log.stage
 
+        # --------------------------------------------------
+        # CALCULATE MOTOR DURATION
+        # --------------------------------------------------
+        duration = int((now - open_log.started_at).total_seconds())
+
         with transaction.atomic():
-            duration = int((now - open_log.started_at).total_seconds())
 
-            open_log.ended_at = now
-            open_log.duration_seconds = duration
-            open_log.save(update_fields=["ended_at", "duration_seconds"])
+            # ==================================================
+            # CREATE NEW MOTOR OFF LOG
+            # ==================================================
+            off_log = EquipmentManualLog.objects.create(
+                equipment=equipment,
+                stage=stage,
+                action="OFF",
+                started_at=now,
+                ended_at=now,
+                duration_seconds=duration,
+                performed_by=request.user,
+            )
 
+            # --------------------------------------------------
+            # UPDATE MOTOR CURRENT STATE
+            # --------------------------------------------------
             equipment.status = "INACTIVE"
             equipment.current_state = "OFF"
-            equipment.save(update_fields=["status", "current_state", "updated_at"])
+            equipment.end_time = now.time()
+            equipment.duration_seconds = duration
 
-            sensors = self._deactivate_sensor(stage) if stage else []
+            equipment.save(
+                update_fields=[
+                    "status",
+                    "current_state",
+                    "end_time",
+                    "duration_seconds",
+                    "updated_at",
+                ]
+            )
 
+            # --------------------------------------------------
+            # DEACTIVATE SENSORS
+            # --------------------------------------------------
+            sensors = (
+                self._deactivate_sensor(
+                    stage=stage,
+                    performed_by=request.user,
+                )
+                if stage
+                else []
+            )
+
+        # --------------------------------------------------
+        # RESPONSE
+        # --------------------------------------------------
         return Response(
             {
-                "id": open_log.id,
-                "equipment": {
-                    "id": equipment.id,
-                    "name": equipment.name,
-                    "code": equipment.code,
-                    "status": "INACTIVE",
-                    "current_state": "OFF",
+                "success": True,
+                "message": "Motor turned OFF successfully.",
+                "data": {
+                    "log_id": off_log.id,
+                    "previous_on_log_id": open_log.id,
+                    "equipment": {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": (
+                            equipment.equipment_type.name
+                            if equipment.equipment_type
+                            else None
+                        ),
+                        "status": "INACTIVE",
+                        "current_state": "OFF",
+                    },
+                    "action": "OFF",
+                    # Original ON time
+                    "started_at": open_log.started_at,
+                    # Motor OFF time
+                    "ended_at": off_log.ended_at,
+                    "duration_seconds": duration,
+                    "stage": (
+                        {
+                            "id": stage.id,
+                            "name": stage.name,
+                        }
+                        if stage
+                        else None
+                    ),
+                    "performed_by": request.user.id,
+                    "sensors": sensors,
                 },
-                "action": "OFF",
-                "started_at": open_log.started_at,
-                "ended_at": open_log.ended_at,
-                "duration_seconds": open_log.duration_seconds,
-                "status": "INACTIVE",
-                "sensors": sensors,
             },
             status=status.HTTP_200_OK,
         )
 
-    def _deactivate_sensor(self, stage):
+    # ==========================================================
+    #                  DEACTIVATE SENSORS
+    # ==========================================================
+    def _deactivate_sensor(self, stage, performed_by):
+
         if not stage:
             return []
 
+        # --------------------------------------------------
+        # GET SENSORS UNDER THE SAME STAGE
+        # --------------------------------------------------
         sensors = (
             stage.equipments.filter(equipment_type__name__icontains="sensor")
             .exclude(name__icontains="valve")
@@ -866,34 +985,104 @@ class MotorOffView(APIView):
 
         deactivated = []
 
+        # --------------------------------------------------
+        # PROCESS EACH SENSOR
+        # --------------------------------------------------
         for sensor in sensors:
-            open_log = EquipmentManualLog.objects.filter(
-                equipment=sensor, ended_at__isnull=True
-            ).first()
 
-            if open_log:
-                now = timezone.now()
-                open_log.ended_at = now
-                open_log.duration_seconds = int(
-                    (now - open_log.started_at).total_seconds()
-                )
-                open_log.save(update_fields=["ended_at", "duration_seconds"])
+            # --------------------------------------------------
+            # FIND LATEST SENSOR ON LOG
+            #
+            # ON log remains unchanged.
+            # Check whether an OFF log already exists.
+            # --------------------------------------------------
+            on_logs = EquipmentManualLog.objects.filter(
+                equipment=sensor,
+                action="ON",
+            ).order_by("-started_at")
 
-                sensor.status = "INACTIVE"
-                sensor.current_state = "OFF"
-                sensor.save(update_fields=["status", "current_state", "updated_at"])
+            open_log = None
 
-                deactivated.append(
-                    {
-                        "id": sensor.id,
-                        "name": sensor.name,
-                        "code": sensor.code,
-                        "status": "INACTIVE",
-                        "current_state": "OFF",
-                        "ended_at": open_log.ended_at,
-                        "duration_seconds": open_log.duration_seconds,
-                    }
-                )
+            for log in on_logs:
+
+                off_exists = EquipmentManualLog.objects.filter(
+                    equipment=sensor,
+                    action="OFF",
+                    started_at__gte=log.started_at,
+                ).exists()
+
+                if not off_exists:
+                    open_log = log
+                    break
+
+            # --------------------------------------------------
+            # SENSOR IS ALREADY OFF
+            # --------------------------------------------------
+            if not open_log:
+                continue
+
+            # --------------------------------------------------
+            # SENSOR OFF TIME
+            # --------------------------------------------------
+            now = timezone.now()
+
+            # --------------------------------------------------
+            # SENSOR DURATION
+            # --------------------------------------------------
+            duration = int((now - open_log.started_at).total_seconds())
+
+            # ==================================================
+            # CREATE NEW SENSOR OFF LOG
+            # ==================================================
+            off_log = EquipmentManualLog.objects.create(
+                equipment=sensor,
+                stage=stage,
+                action="OFF",
+                started_at=now,
+                ended_at=now,
+                duration_seconds=duration,
+                performed_by=performed_by,
+            )
+
+            # --------------------------------------------------
+            # UPDATE SENSOR STATE
+            # --------------------------------------------------
+            sensor.status = "INACTIVE"
+            sensor.current_state = "OFF"
+            sensor.end_time = now.time()
+            sensor.duration_seconds = duration
+
+            sensor.save(
+                update_fields=[
+                    "status",
+                    "current_state",
+                    "end_time",
+                    "duration_seconds",
+                    "updated_at",
+                ]
+            )
+
+            # --------------------------------------------------
+            # ADD SENSOR RESPONSE
+            # --------------------------------------------------
+            deactivated.append(
+                {
+                    "log_id": off_log.id,
+                    "previous_on_log_id": open_log.id,
+                    "id": sensor.id,
+                    "name": sensor.name,
+                    "code": sensor.code,
+                    "status": "INACTIVE",
+                    "current_state": "OFF",
+                    "action": "OFF",
+                    # Original sensor ON time
+                    "started_at": open_log.started_at,
+                    # Sensor OFF time
+                    "ended_at": off_log.ended_at,
+                    "duration_seconds": duration,
+                    "performed_by": performed_by.id,
+                }
+            )
 
         return deactivated
 
@@ -948,56 +1137,173 @@ class EquipmentManualLogByEquipmentView(APIView):
 
     def get(self, request, equipment_id):
 
-        # Check equipment exists
-        equipment = get_object_or_404(Equipment, id=equipment_id)
+        # --------------------------------------------------
+        # CHECK EQUIPMENT EXISTS
+        # --------------------------------------------------
+        equipment = get_object_or_404(
+            Equipment.objects.select_related("equipment_type"),
+            id=equipment_id,
+        )
 
+        # --------------------------------------------------
+        # GET MANUAL LOGS
+        # --------------------------------------------------
         logs = (
             EquipmentManualLog.objects.select_related(
-                "equipment", "stage", "performed_by"
+                "equipment",
+                "equipment__equipment_type",
+                "stage",
+                "performed_by",
             )
             .filter(equipment_id=equipment_id)
             .order_by("-started_at")
         )
 
         action = request.query_params.get("action")
-        stage_id = request.query_params.get("stage_id")
 
         if action:
             logs = logs.filter(action=action.upper())
 
+        stage_id = request.query_params.get("stage_id")
+
         if stage_id:
             logs = logs.filter(stage_id=stage_id)
 
+        # --------------------------------------------------
+        # PREPARE RESPONSE
+        # --------------------------------------------------
         data = []
-        for log in logs:
-            data.append(
-                {
-                    "id": log.id,
-                    "equipment": {
-                        "id": log.equipment.id,
-                        "name": log.equipment.name,
-                        "code": log.equipment.code,
-                    },
-                    "stage": log.stage.name if log.stage else None,
-                    "action": log.action,
-                    "started_at": log.started_at,
-                    "ended_at": log.ended_at,
-                    "duration_seconds": log.duration_seconds,
-                    "performed_by": getattr(
-                        log.performed_by, "username", str(log.performed_by)
-                    ),
-                    "created_at": log.created_at,
-                }
-            )
 
+        for log in logs:
+
+            # ==================================================
+            # ON LOG
+            # ==================================================
+            if log.action == "ON":
+
+                data.append(
+                    {
+                        "id": log.id,
+                        "equipment": {
+                            "id": log.equipment.id,
+                            "name": log.equipment.name,
+                            "code": log.equipment.code,
+                            "equipment_type": (
+                                log.equipment.equipment_type.name
+                                if log.equipment.equipment_type
+                                else None
+                            ),
+                        },
+                        "stage": (
+                            {
+                                "id": log.stage.id,
+                                "name": log.stage.name,
+                            }
+                            if log.stage
+                            else None
+                        ),
+                        "action": "ON",
+                        # ON time
+                        "on_time": log.started_at,
+                        # ON log does not have OFF time
+                        "off_time": None,
+                        "started_at": log.started_at,
+                        "ended_at": None,
+                        # ON log has no duration
+                        "duration_seconds": None,
+                        "performed_by": getattr(
+                            log.performed_by,
+                            "username",
+                            str(log.performed_by),
+                        ),
+                        "created_at": log.created_at,
+                    }
+                )
+
+            # ==================================================
+            # OFF LOG
+            # ==================================================
+            else:
+                previous_on_log = (
+                    EquipmentManualLog.objects.filter(
+                        equipment_id=log.equipment_id,
+                        action="ON",
+                        started_at__lt=log.started_at,
+                    )
+                    .order_by("-started_at")
+                    .first()
+                )
+
+                data.append(
+                    {
+                        "id": log.id,
+                        "equipment": {
+                            "id": log.equipment.id,
+                            "name": log.equipment.name,
+                            "code": log.equipment.code,
+                            "equipment_type": (
+                                log.equipment.equipment_type.name
+                                if log.equipment.equipment_type
+                                else None
+                            ),
+                        },
+                        "stage": (
+                            {
+                                "id": log.stage.id,
+                                "name": log.stage.name,
+                            }
+                            if log.stage
+                            else None
+                        ),
+                        "action": "OFF",
+                        # Original ON log
+                        "previous_on_log_id": (
+                            previous_on_log.id if previous_on_log else None
+                        ),
+                        # Actual ON time
+                        "on_time": (
+                            previous_on_log.started_at if previous_on_log else None
+                        ),
+                        # Actual OFF time
+                        "off_time": log.ended_at,
+                        "started_at": log.started_at,
+                        "ended_at": log.ended_at,
+                        # Duration between ON and OFF
+                        "duration_seconds": log.duration_seconds,
+                        "performed_by": getattr(
+                            log.performed_by,
+                            "username",
+                            str(log.performed_by),
+                        ),
+                        "created_at": log.created_at,
+                    }
+                )
+
+        # --------------------------------------------------
+        # CURRENT EQUIPMENT STATE
+        # --------------------------------------------------
+        current_state = equipment.current_state
+        equipment_status = equipment.status
+
+        # --------------------------------------------------
+        # RESPONSE
+        # --------------------------------------------------
         return Response(
             {
                 "success": True,
-                "message": "Equipment manual logs retrieved successfully.",
+                "message": ("Equipment manual logs retrieved successfully."),
                 "equipment": {
                     "id": equipment.id,
                     "name": equipment.name,
                     "code": equipment.code,
+                    "equipment_type": (
+                        equipment.equipment_type.name
+                        if equipment.equipment_type
+                        else None
+                    ),
+                    "status": equipment_status,
+                    "current_state": current_state,
+                    "is_running": (current_state == "ON"),
                 },
                 "count": len(data),
                 "data": data,
