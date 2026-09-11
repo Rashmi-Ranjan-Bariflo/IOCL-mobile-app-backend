@@ -449,6 +449,7 @@ class EquipmentDetailView(APIView):
 
 from django.utils import timezone
 from django.db import transaction
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -456,13 +457,20 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import get_object_or_404
 
 from .models import Equipment, EquipmentManualLog
-from treatment_process.models import TreatmentStage, TreatmentProcess
-from .serializers import EquipmentOnOffSerializer
 
+from treatment_process.models import (
+    StageEquipmentConfig,
+    TreatmentStage,
+    TreatmentProcess,
+)
+
+from .serializers import EquipmentOnOffSerializer
 
 # ==========================================================
 #                        VALVE ON
 # ==========================================================
+
+
 class ValveOnView(APIView):
 
     permission_classes = [IsAuthenticated]
@@ -490,13 +498,17 @@ class ValveOnView(APIView):
             return Response(
                 {
                     "detail": (
-                        f"This equipment is not a Valve. "
-                        f"Current type: {equipment.equipment_type.name}"
+                        "This equipment is not a Valve. "
+                        f"Current type: "
+                        f"{equipment.equipment_type.name}"
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # --------------------------------------------------
+        # VALIDATE REQUEST
+        # --------------------------------------------------
         serializer = EquipmentOnOffSerializer(data=request.data)
 
         serializer.is_valid(raise_exception=True)
@@ -505,30 +517,54 @@ class ValveOnView(APIView):
         process_id = serializer.validated_data.get("process_id")
 
         # --------------------------------------------------
-        # GET STAGE
+        # STAGE REQUIRED
         # --------------------------------------------------
-        stage = None
-
-        if stage_id:
-
-            stage = get_object_or_404(
-                TreatmentStage,
-                id=stage_id,
+        if not stage_id:
+            return Response(
+                {"detail": "stage_id is required for Valve ON."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-            if process_id:
-                get_object_or_404(
-                    TreatmentProcess,
-                    id=process_id,
-                    stage=stage,
-                )
+        # --------------------------------------------------
+        # GET STAGE
+        # --------------------------------------------------
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
 
-        if equipment.current_state == "ON":
+        # --------------------------------------------------
+        # VALIDATE PROCESS IF PROVIDED
+        # --------------------------------------------------
+        if process_id:
+            get_object_or_404(
+                TreatmentProcess,
+                id=process_id,
+                stage=stage,
+            )
 
-            # Get latest ON log only for response information
+        # ==================================================
+        # GET / CREATE STAGE EQUIPMENT CONFIG
+        # ==================================================
+        config, created = StageEquipmentConfig.objects.get_or_create(
+            equipment=equipment,
+            stage=stage,
+            defaults={
+                "current_state": "OFF",
+                "status": "INACTIVE",
+                "is_active": True,
+            },
+        )
+
+        # ==================================================
+        # CHECK CONFIG STATE
+        # ==================================================
+        if config.current_state == "ON":
+
             latest_on_log = (
                 EquipmentManualLog.objects.filter(
                     equipment=equipment,
+                    stage=stage,
                     action="ON",
                 )
                 .order_by("-started_at", "-id")
@@ -537,31 +573,42 @@ class ValveOnView(APIView):
 
             return Response(
                 {
-                    "detail": "Valve is already ON",
-                    "log_id": (latest_on_log.id if latest_on_log else None),
-                    "start_time": (
-                        latest_on_log.started_at
-                        if latest_on_log
-                        else equipment.start_time
-                    ),
-                    "status": "ACTIVE",
-                    "current_state": "ON",
+                    "success": False,
+                    "detail": "Valve is already ON.",
+                    "data": {
+                        "config_id": config.id,
+                        "log_id": (latest_on_log.id if latest_on_log else None),
+                        "equipment_id": equipment.id,
+                        "equipment_name": equipment.name,
+                        "equipment_code": equipment.code,
+                        "action": "ON",
+                        "status": config.status,
+                        "current_state": config.current_state,
+                        "start_time": (
+                            latest_on_log.started_at
+                            if latest_on_log
+                            else config.start_time
+                        ),
+                        "end_time": config.end_time,
+                        "duration_seconds": (config.duration_seconds),
+                        "stage": {
+                            "id": stage.id,
+                            "name": stage.name,
+                        },
+                    },
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # ==================================================
-        # VALVE IS OFF
+        # VALVE OFF -> TURN ON
         # ==================================================
-
-        # If current_state is OFF, create a NEW ON log.
-
         now = timezone.now()
 
         with transaction.atomic():
 
             # --------------------------------------------------
-            # CREATE NEW ON LOG
+            # CREATE ON EVENT LOG
             # --------------------------------------------------
             log = EquipmentManualLog.objects.create(
                 equipment=equipment,
@@ -572,52 +619,57 @@ class ValveOnView(APIView):
             )
 
             # --------------------------------------------------
-            # UPDATE EQUIPMENT CURRENT STATE
+            # UPDATE STAGE EQUIPMENT CONFIG
             # --------------------------------------------------
-            equipment.status = "ACTIVE"
-            equipment.current_state = "ON"
-            equipment.start_time = now.time()
+            config.current_state = "ON"
+            config.status = "ACTIVE"
+            config.start_time = now.time()
+            config.end_time = None
+            config.duration_seconds = None
+            config.is_active = True
 
-            equipment.save(
+            config.save(
                 update_fields=[
-                    "status",
                     "current_state",
+                    "status",
                     "start_time",
+                    "end_time",
+                    "duration_seconds",
+                    "is_active",
                     "updated_at",
                 ]
             )
 
-        # --------------------------------------------------
+        # ==================================================
         # RESPONSE
-        # --------------------------------------------------
+        # ==================================================
         return Response(
             {
                 "success": True,
-                "message": "Valve turned ON successfully",
+                "message": "Valve turned ON successfully.",
                 "data": {
+                    "config_id": config.id,
                     "log_id": log.id,
-                    "equipment_id": equipment.id,
-                    "equipment_name": equipment.name,
-                    "equipment_code": equipment.code,
-                    "equipment_type": (
-                        equipment.equipment_type.name
-                        if equipment.equipment_type
-                        else None
-                    ),
+                    "equipment": {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": (
+                            equipment.equipment_type.name
+                            if equipment.equipment_type
+                            else None
+                        ),
+                    },
                     "action": "ON",
-                    "status": "ACTIVE",
-                    "current_state": "ON",
+                    "status": config.status,
+                    "current_state": config.current_state,
                     "start_time": log.started_at,
-                    "ended_at": None,
+                    "end_time": None,
                     "duration_seconds": None,
-                    "stage": (
-                        {
-                            "id": stage.id,
-                            "name": stage.name,
-                        }
-                        if stage
-                        else None
-                    ),
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
                     "performed_by": request.user.id,
                 },
             },
@@ -628,50 +680,156 @@ class ValveOnView(APIView):
 # ==========================================================
 #                        VALVE OFF
 # ==========================================================
+
+
 class ValveOffView(APIView):
 
     permission_classes = [IsAuthenticated]
 
     def post(self, request, equipment_id):
+
+        # --------------------------------------------------
+        # GET EQUIPMENT
+        # --------------------------------------------------
         equipment = get_object_or_404(
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
 
+        # --------------------------------------------------
+        # CHECK EQUIPMENT TYPE
+        # --------------------------------------------------
+        if not equipment.equipment_type:
+            return Response(
+                {"detail": "Equipment type is not configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if "valve" not in equipment.equipment_type.name.lower():
             return Response(
                 {
-                    "detail": f"This equipment is not a Valve. Current type: {equipment.equipment_type.name}"
+                    "detail": (
+                        "This equipment is not a Valve. "
+                        f"Current type: "
+                        f"{equipment.equipment_type.name}"
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # --------------------------------------------------
+        # GET STAGE ID
+        # --------------------------------------------------
+        stage_id = request.data.get("stage_id")
+
+        if not stage_id:
+            return Response(
+                {"detail": "stage_id is required for Valve OFF."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --------------------------------------------------
+        # GET STAGE
+        # --------------------------------------------------
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
+
+        # ==================================================
+        # GET STAGE EQUIPMENT CONFIG
+        # ==================================================
+        config = (
+            StageEquipmentConfig.objects.select_related(
+                "equipment",
+                "stage",
+            )
+            .filter(
+                equipment=equipment,
+                stage=stage,
+                is_active=True,
+            )
+            .first()
+        )
+
+        # --------------------------------------------------
+        # CONFIG DOES NOT EXIST
+        # --------------------------------------------------
+        if not config:
+            return Response(
+                {
+                    "success": False,
+                    "detail": (
+                        "StageEquipmentConfig does not exist "
+                        "for this valve and stage. "
+                        "Turn the valve ON first."
+                    ),
+                    "equipment_id": equipment.id,
+                    "stage_id": stage.id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # CHECK CURRENT CONFIG STATE
+        # ==================================================
+        if config.current_state == "OFF":
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Valve is already OFF.",
+                    "data": {
+                        "config_id": config.id,
+                        "equipment_id": equipment.id,
+                        "stage_id": stage.id,
+                        "status": config.status,
+                        "current_state": config.current_state,
+                        "start_time": config.start_time,
+                        "end_time": config.end_time,
+                        "duration_seconds": (config.duration_seconds),
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # FIND CURRENT ON LOG
+        # ==================================================
         open_log = (
             EquipmentManualLog.objects.filter(
-                equipment=equipment, action="ON", ended_at__isnull=True
+                equipment=equipment,
+                stage=stage,
+                action="ON",
             )
-            .order_by("-started_at")
+            .order_by("-started_at", "-id")
             .first()
         )
 
         if not open_log:
             return Response(
-                {"detail": "Valve is already OFF or no active session found"},
+                {"success": False, "detail": ("No ON log found for this valve.")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ==================================================
+        # CALCULATE DURATION
+        # ==================================================
         now = timezone.now()
+
+        duration = int((now - open_log.started_at).total_seconds())
+
+        # Prevent negative duration
+        if duration < 0:
+            duration = 0
 
         with transaction.atomic():
 
-            duration = int((now - open_log.started_at).total_seconds())
-
-            # ------------------------------------------------------
-            # CREATE NEW OFF LOG
-            # ------------------------------------------------------
+            # --------------------------------------------------
+            # CREATE OFF EVENT LOG
+            # --------------------------------------------------
             off_log = EquipmentManualLog.objects.create(
                 equipment=equipment,
-                stage=open_log.stage,
+                stage=stage,
                 action="OFF",
                 started_at=now,
                 ended_at=now,
@@ -679,40 +837,59 @@ class ValveOffView(APIView):
                 performed_by=request.user,
             )
 
-            # ------------------------------------------------------
-            # UPDATE EQUIPMENT STATE
-            # ------------------------------------------------------
-            equipment.status = "INACTIVE"
-            equipment.current_state = "OFF"
-            equipment.end_time = now.time()
-            equipment.duration_seconds = duration
+            # --------------------------------------------------
+            # UPDATE STAGE CONFIG
+            # --------------------------------------------------
+            config.current_state = "OFF"
+            config.status = "INACTIVE"
+            config.end_time = now.time()
+            config.duration_seconds = duration
+            config.is_active = True
 
-            equipment.save(
+            config.save(
                 update_fields=[
-                    "status",
                     "current_state",
+                    "status",
                     "end_time",
                     "duration_seconds",
+                    "is_active",
                     "updated_at",
                 ]
             )
 
+        # ==================================================
+        # RESPONSE
+        # ==================================================
         return Response(
             {
-                "id": off_log.id,
-                "equipment": {
-                    "id": equipment.id,
-                    "name": equipment.name,
-                    "code": equipment.code,
-                    "status": "INACTIVE",
-                    "current_state": "OFF",
+                "success": True,
+                "message": "Valve turned OFF successfully.",
+                "data": {
+                    "config_id": config.id,
+                    "log_id": off_log.id,
+                    "previous_on_log_id": open_log.id,
+                    "equipment": {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": (
+                            equipment.equipment_type.name
+                            if equipment.equipment_type
+                            else None
+                        ),
+                    },
+                    "action": "OFF",
+                    "start_time": open_log.started_at,
+                    "end_time": off_log.ended_at,
+                    "duration_seconds": duration,
+                    "status": config.status,
+                    "current_state": config.current_state,
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
+                    "performed_by": request.user.id,
                 },
-                "action": "OFF",
-                "started_at": off_log.started_at,
-                "ended_at": off_log.ended_at,
-                "duration_seconds": off_log.duration_seconds,
-                "status": "INACTIVE",
-                "previous_on_log_id": open_log.id,
             },
             status=status.HTTP_200_OK,
         )
@@ -721,6 +898,8 @@ class ValveOffView(APIView):
 # ==========================================================
 #                        MOTOR ON
 # ==========================================================
+
+
 class MotorOnView(APIView):
 
     permission_classes = [IsAuthenticated]
@@ -750,13 +929,17 @@ class MotorOnView(APIView):
             return Response(
                 {
                     "detail": (
-                        f"This equipment is not a Motor. "
-                        f"Current type: {equipment.equipment_type.name}"
+                        "This equipment is not a Motor/Pump. "
+                        f"Current type: "
+                        f"{equipment.equipment_type.name}"
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # --------------------------------------------------
+        # VALIDATE REQUEST
+        # --------------------------------------------------
         serializer = EquipmentOnOffSerializer(data=request.data)
 
         serializer.is_valid(raise_exception=True)
@@ -765,7 +948,7 @@ class MotorOnView(APIView):
 
         if not stage_id:
             return Response(
-                {"detail": "stage_id is required for Motor ON"},
+                {"detail": "stage_id is required for Motor ON."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -777,11 +960,28 @@ class MotorOnView(APIView):
             id=stage_id,
         )
 
-        if equipment.current_state == "ON":
+        # ==================================================
+        # GET / CREATE MOTOR CONFIG
+        # ==================================================
+        config, created = StageEquipmentConfig.objects.get_or_create(
+            equipment=equipment,
+            stage=stage,
+            defaults={
+                "current_state": "OFF",
+                "status": "INACTIVE",
+                "is_active": True,
+            },
+        )
+
+        # ==================================================
+        # CHECK MOTOR STATE
+        # ==================================================
+        if config.current_state == "ON":
 
             latest_on_log = (
                 EquipmentManualLog.objects.filter(
                     equipment=equipment,
+                    stage=stage,
                     action="ON",
                 )
                 .order_by("-started_at", "-id")
@@ -790,40 +990,76 @@ class MotorOnView(APIView):
 
             return Response(
                 {
-                    "detail": "Motor is already ON",
-                    "log_id": (latest_on_log.id if latest_on_log else None),
-                    "started_at": (latest_on_log.started_at if latest_on_log else None),
-                    "status": "ACTIVE",
-                    "current_state": "ON",
+                    "success": False,
+                    "detail": "Motor is already ON.",
+                    "data": {
+                        "config_id": config.id,
+                        "log_id": (latest_on_log.id if latest_on_log else None),
+                        "equipment_id": equipment.id,
+                        "equipment_name": equipment.name,
+                        "equipment_code": equipment.code,
+                        "action": "ON",
+                        "status": config.status,
+                        "current_state": config.current_state,
+                        "start_time": (
+                            latest_on_log.started_at
+                            if latest_on_log
+                            else config.start_time
+                        ),
+                        "end_time": config.end_time,
+                        "duration_seconds": (config.duration_seconds),
+                        "stage": {
+                            "id": stage.id,
+                            "name": stage.name,
+                        },
+                    },
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ==================================================
+        # CHECK VALVE OF SAME STAGE
+        # ==================================================
         stage_valves = stage.equipments.filter(equipment_type__name__icontains="valve")
 
         valve_is_on = False
+        active_valve = None
 
         for valve in stage_valves:
 
-            if valve.current_state == "ON":
+            valve_config = StageEquipmentConfig.objects.filter(
+                equipment=valve,
+                stage=stage,
+                is_active=True,
+            ).first()
+
+            if valve_config and valve_config.current_state == "ON":
                 valve_is_on = True
+                active_valve = valve_config
                 break
 
+        # --------------------------------------------------
+        # VALVE MUST BE ON
+        # --------------------------------------------------
         if not valve_is_on:
+
             return Response(
                 {
+                    "success": False,
                     "detail": (
                         "Cannot turn Motor ON. " "Valve of this stage is not ON."
                     ),
-                    "stage": stage.name,
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # ==================================================
-        # MOTOR IS OFF
+        # MOTOR ON
         # ==================================================
-
         now = timezone.now()
 
         with transaction.atomic():
@@ -840,37 +1076,44 @@ class MotorOnView(APIView):
             )
 
             # --------------------------------------------------
-            # UPDATE MOTOR STATE
+            # UPDATE MOTOR CONFIG
             # --------------------------------------------------
-            equipment.status = "ACTIVE"
-            equipment.current_state = "ON"
-            equipment.start_time = now.time()
+            config.current_state = "ON"
+            config.status = "ACTIVE"
+            config.start_time = now.time()
+            config.end_time = None
+            config.duration_seconds = None
+            config.is_active = True
 
-            equipment.save(
+            config.save(
                 update_fields=[
-                    "status",
                     "current_state",
+                    "status",
                     "start_time",
+                    "end_time",
+                    "duration_seconds",
+                    "is_active",
                     "updated_at",
                 ]
             )
 
             # --------------------------------------------------
-            # AUTOMATICALLY ACTIVATE SENSORS
+            # ACTIVATE SENSORS
             # --------------------------------------------------
-            sensors = self._activate_sensor(
+            sensors = self._activate_sensors(
                 stage=stage,
                 user=request.user,
             )
 
-        # --------------------------------------------------
+        # ==================================================
         # RESPONSE
-        # --------------------------------------------------
+        # ==================================================
         return Response(
             {
                 "success": True,
-                "message": "Motor turned ON successfully",
+                "message": "Motor turned ON successfully.",
                 "data": {
+                    "config_id": config.id,
                     "log_id": log.id,
                     "equipment": {
                         "id": equipment.id,
@@ -881,10 +1124,10 @@ class MotorOnView(APIView):
                             if equipment.equipment_type
                             else None
                         ),
-                        "status": "ACTIVE",
-                        "current_state": "ON",
                     },
                     "action": "ON",
+                    "status": config.status,
+                    "current_state": config.current_state,
                     "started_at": log.started_at,
                     "ended_at": None,
                     "duration_seconds": None,
@@ -893,6 +1136,16 @@ class MotorOnView(APIView):
                         "name": stage.name,
                     },
                     "performed_by": request.user.id,
+                    "valve": (
+                        {
+                            "config_id": active_valve.id,
+                            "equipment_id": (active_valve.equipment.id),
+                            "name": (active_valve.equipment.name),
+                            "current_state": (active_valve.current_state),
+                        }
+                        if active_valve
+                        else None
+                    ),
                     "sensors": sensors,
                 },
             },
@@ -902,11 +1155,9 @@ class MotorOnView(APIView):
     # ==========================================================
     #                  ACTIVATE SENSORS
     # ==========================================================
-    def _activate_sensor(self, stage, user):
 
-        # --------------------------------------------------
-        # GET SENSORS UNDER SAME STAGE
-        # --------------------------------------------------
+    def _activate_sensors(self, stage, user):
+
         sensors = (
             stage.equipments.filter(equipment_type__name__icontains="sensor")
             .exclude(name__icontains="valve")
@@ -915,19 +1166,32 @@ class MotorOnView(APIView):
 
         activated = []
 
-        # --------------------------------------------------
-        # ACTIVATE EACH SENSOR
-        # --------------------------------------------------
         for sensor in sensors:
 
-            if sensor.current_state == "ON":
+            # --------------------------------------------------
+            # GET / CREATE SENSOR CONFIG
+            # --------------------------------------------------
+            config, created = StageEquipmentConfig.objects.get_or_create(
+                equipment=sensor,
+                stage=stage,
+                defaults={
+                    "current_state": "OFF",
+                    "status": "INACTIVE",
+                    "is_active": True,
+                },
+            )
+
+            # --------------------------------------------------
+            # SENSOR ALREADY ON
+            # --------------------------------------------------
+            if config.current_state == "ON":
                 continue
 
-            # --------------------------------------------------
-            # CREATE NEW SENSOR ON LOG
-            # --------------------------------------------------
             now = timezone.now()
 
+            # --------------------------------------------------
+            # CREATE SENSOR ON LOG
+            # --------------------------------------------------
             log = EquipmentManualLog.objects.create(
                 equipment=sensor,
                 stage=stage,
@@ -937,36 +1201,40 @@ class MotorOnView(APIView):
             )
 
             # --------------------------------------------------
-            # UPDATE SENSOR STATE
+            # UPDATE SENSOR CONFIG
             # --------------------------------------------------
-            sensor.status = "ACTIVE"
-            sensor.current_state = "ON"
-            sensor.start_time = now.time()
+            config.current_state = "ON"
+            config.status = "ACTIVE"
+            config.start_time = now.time()
+            config.end_time = None
+            config.duration_seconds = None
+            config.is_active = True
 
-            sensor.save(
+            config.save(
                 update_fields=[
-                    "status",
                     "current_state",
+                    "status",
                     "start_time",
+                    "end_time",
+                    "duration_seconds",
+                    "is_active",
                     "updated_at",
                 ]
             )
 
-            # --------------------------------------------------
-            # SENSOR RESPONSE
-            # --------------------------------------------------
             activated.append(
                 {
+                    "config_id": config.id,
                     "log_id": log.id,
-                    "id": sensor.id,
+                    "equipment_id": sensor.id,
                     "name": sensor.name,
                     "code": sensor.code,
                     "equipment_type": (
                         sensor.equipment_type.name if sensor.equipment_type else None
                     ),
                     "action": "ON",
-                    "status": "ACTIVE",
-                    "current_state": "ON",
+                    "status": config.status,
+                    "current_state": config.current_state,
                     "started_at": log.started_at,
                     "ended_at": None,
                     "duration_seconds": None,
@@ -984,6 +1252,8 @@ class MotorOnView(APIView):
 # ==========================================================
 #                        MOTOR OFF
 # ==========================================================
+
+
 class MotorOffView(APIView):
 
     permission_classes = [IsAuthenticated]
@@ -991,7 +1261,7 @@ class MotorOffView(APIView):
     def post(self, request, equipment_id):
 
         # --------------------------------------------------
-        # GET MOTOR
+        # GET EQUIPMENT
         # --------------------------------------------------
         equipment = get_object_or_404(
             Equipment.objects.select_related("equipment_type"),
@@ -1013,64 +1283,124 @@ class MotorOffView(APIView):
             return Response(
                 {
                     "detail": (
-                        f"This equipment is not a Motor. "
-                        f"Current type: {equipment.equipment_type.name}"
+                        "This equipment is not a Motor/Pump. "
+                        f"Current type: "
+                        f"{equipment.equipment_type.name}"
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # --------------------------------------------------
-        # FIND LATEST ACTIVE MOTOR ON LOG
-        #
-        # ON log is never updated with ended_at.
-        # Therefore, check that no OFF log exists after it.
+        # GET STAGE ID
         # --------------------------------------------------
-        on_logs = EquipmentManualLog.objects.filter(
-            equipment=equipment,
-            action="ON",
-        ).order_by("-started_at")
+        stage_id = request.data.get("stage_id")
 
-        open_log = None
-
-        for log in on_logs:
-
-            off_exists = EquipmentManualLog.objects.filter(
-                equipment=equipment,
-                action="OFF",
-                started_at__gte=log.started_at,
-            ).exists()
-
-            if not off_exists:
-                open_log = log
-                break
-
-        # --------------------------------------------------
-        # NO ACTIVE SESSION
-        # --------------------------------------------------
-        if not open_log:
+        if not stage_id:
             return Response(
-                {"detail": "Motor is already OFF or no active session found"},
+                {"detail": "stage_id is required for Motor OFF."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # --------------------------------------------------
-        # CURRENT TIME
+        # GET STAGE
         # --------------------------------------------------
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
+
+        # ==================================================
+        # GET MOTOR CONFIG
+        # ==================================================
+        config = (
+            StageEquipmentConfig.objects.select_related(
+                "equipment",
+                "stage",
+            )
+            .filter(
+                equipment=equipment,
+                stage=stage,
+                is_active=True,
+            )
+            .first()
+        )
+
+        # --------------------------------------------------
+        # CONFIG DOES NOT EXIST
+        # --------------------------------------------------
+        if not config:
+            return Response(
+                {
+                    "success": False,
+                    "detail": (
+                        "StageEquipmentConfig does not exist "
+                        "for this motor and stage. "
+                        "Turn the motor ON first."
+                    ),
+                    "equipment_id": equipment.id,
+                    "stage_id": stage.id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # CHECK MOTOR STATE
+        # ==================================================
+        if config.current_state == "OFF":
+
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Motor is already OFF.",
+                    "data": {
+                        "config_id": config.id,
+                        "equipment_id": equipment.id,
+                        "stage_id": stage.id,
+                        "status": config.status,
+                        "current_state": config.current_state,
+                        "start_time": config.start_time,
+                        "end_time": config.end_time,
+                        "duration_seconds": (config.duration_seconds),
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # FIND CURRENT MOTOR ON LOG
+        # ==================================================
+        open_log = (
+            EquipmentManualLog.objects.filter(
+                equipment=equipment,
+                stage=stage,
+                action="ON",
+            )
+            .order_by("-started_at", "-id")
+            .first()
+        )
+
+        if not open_log:
+            return Response(
+                {"success": False, "detail": ("No ON log found for this motor.")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # CALCULATE DURATION
+        # ==================================================
         now = timezone.now()
 
-        stage = open_log.stage
-
-        # --------------------------------------------------
-        # CALCULATE MOTOR DURATION
-        # --------------------------------------------------
         duration = int((now - open_log.started_at).total_seconds())
+
+        if duration < 0:
+            duration = 0
 
         with transaction.atomic():
 
-            # ==================================================
-            # CREATE NEW MOTOR OFF LOG
-            # ==================================================
+            # --------------------------------------------------
+            # CREATE MOTOR OFF LOG
+            # --------------------------------------------------
             off_log = EquipmentManualLog.objects.create(
                 equipment=equipment,
                 stage=stage,
@@ -1082,19 +1412,21 @@ class MotorOffView(APIView):
             )
 
             # --------------------------------------------------
-            # UPDATE MOTOR CURRENT STATE
+            # UPDATE MOTOR CONFIG
             # --------------------------------------------------
-            equipment.status = "INACTIVE"
-            equipment.current_state = "OFF"
-            equipment.end_time = now.time()
-            equipment.duration_seconds = duration
+            config.current_state = "OFF"
+            config.status = "INACTIVE"
+            config.end_time = now.time()
+            config.duration_seconds = duration
+            config.is_active = True
 
-            equipment.save(
+            config.save(
                 update_fields=[
-                    "status",
                     "current_state",
+                    "status",
                     "end_time",
                     "duration_seconds",
+                    "is_active",
                     "updated_at",
                 ]
             )
@@ -1102,23 +1434,20 @@ class MotorOffView(APIView):
             # --------------------------------------------------
             # DEACTIVATE SENSORS
             # --------------------------------------------------
-            sensors = (
-                self._deactivate_sensor(
-                    stage=stage,
-                    performed_by=request.user,
-                )
-                if stage
-                else []
+            sensors = self._deactivate_sensors(
+                stage=stage,
+                performed_by=request.user,
             )
 
-        # --------------------------------------------------
+        # ==================================================
         # RESPONSE
-        # --------------------------------------------------
+        # ==================================================
         return Response(
             {
                 "success": True,
                 "message": "Motor turned OFF successfully.",
                 "data": {
+                    "config_id": config.id,
                     "log_id": off_log.id,
                     "previous_on_log_id": open_log.id,
                     "equipment": {
@@ -1130,23 +1459,17 @@ class MotorOffView(APIView):
                             if equipment.equipment_type
                             else None
                         ),
-                        "status": "INACTIVE",
-                        "current_state": "OFF",
                     },
                     "action": "OFF",
-                    # Original ON time
-                    "started_at": open_log.started_at,
-                    # Motor OFF time
-                    "ended_at": off_log.ended_at,
+                    "start_time": open_log.started_at,
+                    "end_time": off_log.ended_at,
                     "duration_seconds": duration,
-                    "stage": (
-                        {
-                            "id": stage.id,
-                            "name": stage.name,
-                        }
-                        if stage
-                        else None
-                    ),
+                    "status": config.status,
+                    "current_state": config.current_state,
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
                     "performed_by": request.user.id,
                     "sensors": sensors,
                 },
@@ -1157,14 +1480,12 @@ class MotorOffView(APIView):
     # ==========================================================
     #                  DEACTIVATE SENSORS
     # ==========================================================
-    def _deactivate_sensor(self, stage, performed_by):
+
+    def _deactivate_sensors(self, stage, performed_by):
 
         if not stage:
             return []
 
-        # --------------------------------------------------
-        # GET SENSORS UNDER THE SAME STAGE
-        # --------------------------------------------------
         sensors = (
             stage.equipments.filter(equipment_type__name__icontains="sensor")
             .exclude(name__icontains="valve")
@@ -1173,55 +1494,58 @@ class MotorOffView(APIView):
 
         deactivated = []
 
-        # --------------------------------------------------
-        # PROCESS EACH SENSOR
-        # --------------------------------------------------
         for sensor in sensors:
 
             # --------------------------------------------------
-            # FIND LATEST SENSOR ON LOG
-            #
-            # ON log remains unchanged.
-            # Check whether an OFF log already exists.
+            # GET SENSOR CONFIG
             # --------------------------------------------------
-            on_logs = EquipmentManualLog.objects.filter(
+            config = StageEquipmentConfig.objects.filter(
                 equipment=sensor,
-                action="ON",
-            ).order_by("-started_at")
+                stage=stage,
+                is_active=True,
+            ).first()
 
-            open_log = None
+            # --------------------------------------------------
+            # NO CONFIG
+            # --------------------------------------------------
+            if not config:
+                continue
 
-            for log in on_logs:
+            # --------------------------------------------------
+            # SENSOR ALREADY OFF
+            # --------------------------------------------------
+            if config.current_state == "OFF":
+                continue
 
-                off_exists = EquipmentManualLog.objects.filter(
+            # --------------------------------------------------
+            # FIND SENSOR ON LOG
+            # --------------------------------------------------
+            open_log = (
+                EquipmentManualLog.objects.filter(
                     equipment=sensor,
-                    action="OFF",
-                    started_at__gte=log.started_at,
-                ).exists()
+                    stage=stage,
+                    action="ON",
+                )
+                .order_by("-started_at", "-id")
+                .first()
+            )
 
-                if not off_exists:
-                    open_log = log
-                    break
-
-            # --------------------------------------------------
-            # SENSOR IS ALREADY OFF
-            # --------------------------------------------------
             if not open_log:
                 continue
 
             # --------------------------------------------------
-            # SENSOR OFF TIME
+            # CALCULATE DURATION
             # --------------------------------------------------
             now = timezone.now()
 
-            # --------------------------------------------------
-            # SENSOR DURATION
-            # --------------------------------------------------
             duration = int((now - open_log.started_at).total_seconds())
 
-            # ==================================================
-            # CREATE NEW SENSOR OFF LOG
-            # ==================================================
+            if duration < 0:
+                duration = 0
+
+            # --------------------------------------------------
+            # CREATE SENSOR OFF LOG
+            # --------------------------------------------------
             off_log = EquipmentManualLog.objects.create(
                 equipment=sensor,
                 stage=stage,
@@ -1233,41 +1557,46 @@ class MotorOffView(APIView):
             )
 
             # --------------------------------------------------
-            # UPDATE SENSOR STATE
+            # UPDATE SENSOR CONFIG
             # --------------------------------------------------
-            sensor.status = "INACTIVE"
-            sensor.current_state = "OFF"
-            sensor.end_time = now.time()
-            sensor.duration_seconds = duration
+            config.current_state = "OFF"
+            config.status = "INACTIVE"
+            config.end_time = now.time()
+            config.duration_seconds = duration
+            config.is_active = True
 
-            sensor.save(
+            config.save(
                 update_fields=[
-                    "status",
                     "current_state",
+                    "status",
                     "end_time",
                     "duration_seconds",
+                    "is_active",
                     "updated_at",
                 ]
             )
 
-            # --------------------------------------------------
-            # ADD SENSOR RESPONSE
-            # --------------------------------------------------
             deactivated.append(
                 {
+                    "config_id": config.id,
                     "log_id": off_log.id,
                     "previous_on_log_id": open_log.id,
-                    "id": sensor.id,
+                    "equipment_id": sensor.id,
                     "name": sensor.name,
                     "code": sensor.code,
-                    "status": "INACTIVE",
-                    "current_state": "OFF",
+                    "equipment_type": (
+                        sensor.equipment_type.name if sensor.equipment_type else None
+                    ),
                     "action": "OFF",
-                    # Original sensor ON time
-                    "started_at": open_log.started_at,
-                    # Sensor OFF time
-                    "ended_at": off_log.ended_at,
+                    "status": config.status,
+                    "current_state": config.current_state,
+                    "start_time": open_log.started_at,
+                    "end_time": off_log.ended_at,
                     "duration_seconds": duration,
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
                     "performed_by": performed_by.id,
                 }
             )
