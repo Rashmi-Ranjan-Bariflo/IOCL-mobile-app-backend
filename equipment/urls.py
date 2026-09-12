@@ -1,5 +1,7 @@
 from django.urls import path
 from .views import (
+    CoagulantDosingMotorOffView,
+    CoagulantDosingMotorOnView,
     EquipmentManualLogByEquipmentView,
     EquipmentTypeListCreateView,
     EquipmentTypeDetailView,
@@ -36,5 +38,8 @@ urlpatterns = [
 
     path("manual-logs/<int:equipment_id>/", EquipmentManualLogByEquipmentView.as_view()),
     path("merge/<int:stage_id>/", StageEquipmentsDurationView.as_view()),
+
+    path("coagulant-dosing/motor/<int:equipment_id>/on/", CoagulantDosingMotorOnView.as_view(),),
+    path("coagulant-dosing/motor/<int:equipment_id>/off/", CoagulantDosingMotorOffView.as_view(),),
 
 ]
