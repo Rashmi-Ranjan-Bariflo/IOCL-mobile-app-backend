@@ -10,8 +10,7 @@ from equipment.models import Equipment
 class TreatmentStage(models.Model):
 
     STAGE_CHOICES = [
-        ("WASTEWATER_COLLECTION", "Wastewater Collection"),
-        ("NORMALWATER_COLLECTION", "NormalWater Collection"),
+        ("INLET","Inlet"),
         ("TREATMENT", "Treatment"),
         ("COAGULATION", "Coagulation"),
         ("FLOCCULATION", "Flocculation"),
