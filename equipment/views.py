@@ -1162,68 +1162,54 @@ class MotorOffView(APIView):
         return deactivated
 
 
-class SensorListView(APIView):
+# =========================================================
+#                    STAGE SENSORS
+# =========================================================
+class StageSensorListView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        sensors = (
-            Equipment.objects.select_related("equipment_type")
-            .filter(equipment_type__name__icontains="sensor")
-            .exclude(name__icontains="valve")
-            .exclude(code__icontains="val")
-        )
-        stage_id = request.query_params.get("stage_id")
-        status_filter = request.query_params.get("status")
-        current_state_filter = request.query_params.get("current_state")
-        if stage_id:
-            sensors = sensors.filter(treatment_stages__id=stage_id)
+    def get(self, request, stage_id):
+        stage = get_object_or_404(TreatmentStage, id=stage_id)
+
         configs = StageEquipmentConfig.objects.filter(
-            equipment__in=sensors,
+            stage=stage,
+            equipment__equipment_type__name__icontains="sensor",
             is_active=True,
         ).select_related(
             "equipment",
             "equipment__equipment_type",
-            "stage",
         )
-        if stage_id:
-            configs = configs.filter(stage_id=stage_id)
-        if status_filter:
-            configs = configs.filter(status=status_filter.upper())
-        if current_state_filter:
-            configs = configs.filter(current_state=current_state_filter.upper())
+
         data = []
+
         for config in configs:
             data.append(
                 {
                     "config_id": config.id,
-                    "equipment": {
-                        "id": config.equipment.id,
-                        "name": config.equipment.name,
-                        "code": config.equipment.code,
-                        "equipment_type": (
-                            config.equipment.equipment_type.name
-                            if config.equipment.equipment_type
-                            else None
-                        ),
-                    },
-                    "stage": {
-                        "id": config.stage.id,
-                        "name": config.stage.name,
-                    },
+                    "equipment_id": config.equipment.id,
+                    "name": config.equipment.name,
+                    "code": config.equipment.code,
+                    "equipment_type": (
+                        config.equipment.equipment_type.name
+                        if config.equipment.equipment_type
+                        else None
+                    ),
                     "current_state": config.current_state,
                     "status": config.status,
-                    "start_time": config.start_time,
-                    "end_time": config.end_time,
-                    "duration_seconds": config.duration_seconds,
                     "is_active": config.is_active,
                 }
             )
+
         return Response(
             {
                 "success": True,
-                "message": "Sensors retrieved successfully.",
-                "count": len(data),
-                "data": data,
+                "message": "Stage sensors retrieved successfully.",
+                "stage": {
+                    "id": stage.id,
+                    "name": stage.name,
+                },
+                "sensor_count": len(data),
+                "sensors": data,
             },
             status=status.HTTP_200_OK,
         )
@@ -1410,11 +1396,9 @@ class StageEquipmentsDurationView(APIView):
 
 
 class CoagulantDosingMotorOnView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     def post(self, request, equipment_id):
-
         equipment = get_object_or_404(
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
@@ -1452,20 +1436,15 @@ class CoagulantDosingMotorOnView(APIView):
         config, created = StageEquipmentConfig.objects.get_or_create(
             equipment=equipment,
             stage=stage,
-            defaults={
-                "current_state": "OFF",
-                "status": "INACTIVE",
-                "is_active": True,
-            },
         )
 
         if config.current_state == "ON":
-
             latest_on_log = (
                 EquipmentManualLog.objects.filter(
                     equipment=equipment,
                     stage=stage,
                     action="ON",
+                    ended_at__isnull=True,
                 )
                 .order_by("-started_at", "-id")
                 .first()
@@ -1484,13 +1463,11 @@ class CoagulantDosingMotorOnView(APIView):
                         "action": "ON",
                         "status": config.status,
                         "current_state": config.current_state,
-                        "start_time": (
-                            latest_on_log.started_at
-                            if latest_on_log
-                            else config.start_time
+                        "started_at": (
+                            latest_on_log.started_at if latest_on_log else None
                         ),
-                        "end_time": config.end_time,
-                        "duration_seconds": config.duration_seconds,
+                        "ended_at": None,
+                        "duration_seconds": 0,
                         "stage": {
                             "id": stage.id,
                             "name": stage.name,
@@ -1500,43 +1477,9 @@ class CoagulantDosingMotorOnView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        stage_valves = stage.equipments.filter(equipment_type__name__icontains="valve")
-
-        valve_is_on = False
-        active_valve = None
-
-        for valve in stage_valves:
-            valve_config = StageEquipmentConfig.objects.filter(
-                equipment=valve,
-                stage=stage,
-                is_active=True,
-            ).first()
-
-            if valve_config and valve_config.current_state == "ON":
-                valve_is_on = True
-                active_valve = valve_config
-                break
-
-        if not valve_is_on:
-            return Response(
-                {
-                    "success": False,
-                    "detail": "Cannot turn Motor ON. Valve of this stage is not ON.",
-                    "stage": {
-                        "id": stage.id,
-                        "name": stage.name,
-                    },
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ==================================================
-        # MOTOR ON
-        # ==================================================
         now = timezone.now()
 
         with transaction.atomic():
-
             log = EquipmentManualLog.objects.create(
                 equipment=equipment,
                 stage=stage,
@@ -1546,20 +1489,9 @@ class CoagulantDosingMotorOnView(APIView):
             )
 
             config.current_state = "ON"
-            config.status = "ACTIVE"
-            config.start_time = now.time()
-            config.end_time = None
-            config.duration_seconds = None
-            config.is_active = True
-
             config.save(
                 update_fields=[
                     "current_state",
-                    "status",
-                    "start_time",
-                    "end_time",
-                    "duration_seconds",
-                    "is_active",
                     "updated_at",
                 ]
             )
@@ -1567,7 +1499,7 @@ class CoagulantDosingMotorOnView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Motor turned ON successfully.",
+                "message": "Coagulant Dosing Motor turned ON successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": log.id,
@@ -1575,33 +1507,19 @@ class CoagulantDosingMotorOnView(APIView):
                         "id": equipment.id,
                         "name": equipment.name,
                         "code": equipment.code,
-                        "equipment_type": (
-                            equipment.equipment_type.name
-                            if equipment.equipment_type
-                            else None
-                        ),
+                        "equipment_type": equipment.equipment_type.name,
                     },
                     "action": "ON",
                     "status": config.status,
                     "current_state": config.current_state,
                     "started_at": log.started_at,
                     "ended_at": None,
-                    "duration_seconds": None,
+                    "duration_seconds": 0,
                     "stage": {
                         "id": stage.id,
                         "name": stage.name,
                     },
                     "performed_by": request.user.id,
-                    "valve": (
-                        {
-                            "config_id": active_valve.id,
-                            "equipment_id": active_valve.equipment.id,
-                            "name": active_valve.equipment.name,
-                            "current_state": active_valve.current_state,
-                        }
-                        if active_valve
-                        else None
-                    ),
                 },
             },
             status=status.HTTP_201_CREATED,
@@ -1612,11 +1530,9 @@ class CoagulantDosingMotorOnView(APIView):
 #          COAGULANT DOSING - MOTOR OFF
 # ==========================================================
 class CoagulantDosingMotorOffView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     def post(self, request, equipment_id):
-
         equipment = get_object_or_404(
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
@@ -1651,24 +1567,16 @@ class CoagulantDosingMotorOffView(APIView):
 
         stage = get_object_or_404(TreatmentStage, id=stage_id)
 
-        config = (
-            StageEquipmentConfig.objects.select_related("equipment", "stage")
-            .filter(
-                equipment=equipment,
-                stage=stage,
-                is_active=True,
-            )
-            .first()
-        )
+        config = StageEquipmentConfig.objects.filter(
+            equipment=equipment,
+            stage=stage,
+        ).first()
 
         if not config:
             return Response(
                 {
                     "success": False,
-                    "detail": (
-                        "StageEquipmentConfig does not exist for this motor "
-                        "and stage. Turn the motor ON first."
-                    ),
+                    "detail": "StageEquipmentConfig does not exist for this motor and stage.",
                     "equipment_id": equipment.id,
                     "stage_id": stage.id,
                 },
@@ -1686,9 +1594,6 @@ class CoagulantDosingMotorOffView(APIView):
                         "stage_id": stage.id,
                         "status": config.status,
                         "current_state": config.current_state,
-                        "start_time": config.start_time,
-                        "end_time": config.end_time,
-                        "duration_seconds": config.duration_seconds,
                     },
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1699,6 +1604,7 @@ class CoagulantDosingMotorOffView(APIView):
                 equipment=equipment,
                 stage=stage,
                 action="ON",
+                ended_at__isnull=True,
             )
             .order_by("-started_at", "-id")
             .first()
@@ -1708,17 +1614,26 @@ class CoagulantDosingMotorOffView(APIView):
             return Response(
                 {
                     "success": False,
-                    "detail": "No ON log found for this motor.",
+                    "detail": "No open ON log found for this motor.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         now = timezone.now()
-        duration = int((now - open_log.started_at).total_seconds())
-        if duration < 0:
-            duration = 0
+        duration = max(
+            0,
+            int((now - open_log.started_at).total_seconds()),
+        )
 
         with transaction.atomic():
+            open_log.ended_at = now
+            open_log.duration_seconds = duration
+            open_log.save(
+                update_fields=[
+                    "ended_at",
+                    "duration_seconds",
+                ]
+            )
 
             off_log = EquipmentManualLog.objects.create(
                 equipment=equipment,
@@ -1731,18 +1646,9 @@ class CoagulantDosingMotorOffView(APIView):
             )
 
             config.current_state = "OFF"
-            config.status = "INACTIVE"
-            config.end_time = now.time()
-            config.duration_seconds = duration
-            config.is_active = True
-
             config.save(
                 update_fields=[
                     "current_state",
-                    "status",
-                    "end_time",
-                    "duration_seconds",
-                    "is_active",
                     "updated_at",
                 ]
             )
@@ -1750,7 +1656,7 @@ class CoagulantDosingMotorOffView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Motor turned OFF successfully.",
+                "message": "Coagulant Dosing Motor turned OFF successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": off_log.id,
@@ -1759,23 +1665,140 @@ class CoagulantDosingMotorOffView(APIView):
                         "id": equipment.id,
                         "name": equipment.name,
                         "code": equipment.code,
-                        "equipment_type": (
-                            equipment.equipment_type.name
-                            if equipment.equipment_type
-                            else None
-                        ),
+                        "equipment_type": equipment.equipment_type.name,
                     },
                     "action": "OFF",
-                    "start_time": open_log.started_at,
-                    "end_time": off_log.ended_at,
-                    "duration_seconds": duration,
                     "status": config.status,
                     "current_state": config.current_state,
+                    "started_at": open_log.started_at,
+                    "ended_at": now,
+                    "duration_seconds": duration,
                     "stage": {
                         "id": stage.id,
                         "name": stage.name,
                     },
                     "performed_by": request.user.id,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# =======================================================
+#         COAGULANT DOSING - MOTOR AUTO ON
+# =======================================================
+
+
+class CoagulantDosingMotorAutoOnView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stage_id, equipment_id):
+        stage = get_object_or_404(TreatmentStage, id=stage_id)
+        equipment = get_object_or_404(
+            Equipment.objects.select_related("equipment_type"),
+            id=equipment_id,
+        )
+
+        equipment_type = (
+            equipment.equipment_type.name.lower() if equipment.equipment_type else ""
+        )
+
+        if "motor" not in equipment_type and "pump" not in equipment_type:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Selected equipment is not a motor/pump.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if (
+            "coagulant" not in equipment.name.lower()
+            and "dosing" not in equipment.name.lower()
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": "Selected equipment is not a Coagulant Dosing Motor.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        config, created = StageEquipmentConfig.objects.get_or_create(
+            equipment=equipment,
+            stage=stage,
+            defaults={
+                "is_active": True,
+            },
+        )
+
+        if config.current_state == "ON":
+            open_log = (
+                EquipmentManualLog.objects.filter(
+                    equipment=equipment,
+                    stage=stage,
+                    action="ON",
+                    ended_at__isnull=True,
+                )
+                .order_by("-started_at", "-id")
+                .first()
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Coagulant Dosing Motor is already ON.",
+                    "data": {
+                        "equipment_id": equipment.id,
+                        "equipment_name": equipment.name,
+                        "stage_id": stage.id,
+                        "stage_name": stage.name,
+                        "current_state": config.current_state,
+                        "status": config.status,
+                        "mode": "AUTO",
+                        "is_running": True,
+                        "started_at": open_log.started_at if open_log else None,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        started_at = timezone.now()
+
+        log = EquipmentManualLog.objects.create(
+            equipment=equipment,
+            stage=stage,
+            action="ON",
+            started_at=started_at,
+            performed_by=request.user,
+        )
+
+        config.current_state = "ON"
+        config.save(update_fields=["current_state", "updated_at"])
+
+        return Response(
+            {
+                "success": True,
+                "message": "Coagulant Dosing Motor turned ON in Auto Mode.",
+                "data": {
+                    "equipment_id": equipment.id,
+                    "equipment_name": equipment.name,
+                    "equipment_code": equipment.code,
+                    "equipment_type": (
+                        equipment.equipment_type.name
+                        if equipment.equipment_type
+                        else None
+                    ),
+                    "stage_id": stage.id,
+                    "stage_name": stage.name,
+                    "current_state": config.current_state,
+                    "status": config.status,
+                    "mode": "AUTO",
+                    "is_running": True,
+                    "log_id": log.id,
+                    "started_at": log.started_at,
+                    "ended_at": None,
+                    "duration_seconds": 0,
                 },
             },
             status=status.HTTP_200_OK,
