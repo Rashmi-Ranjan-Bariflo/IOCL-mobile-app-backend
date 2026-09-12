@@ -110,16 +110,6 @@ class Equipment(models.Model):
         blank=True,
         null=True
     )
-    current_state = models.CharField(
-        max_length=10,
-        choices=STATE_CHOICES,
-        default="OFF"
-    )
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default="ACTIVE",
-    )
     is_active = models.BooleanField(
         default=True,
     )
@@ -140,13 +130,10 @@ class Equipment(models.Model):
                 name="equipment_code_idx",
             ),
             models.Index(
-                fields=["status"],
-                name="equipment_status_idx",
+                fields=["is_active"],
+                name="equipment_is_active_idx",
             ),
         ]
-
-    def __str__(self):
-        return f"{self.name} ({self.code})"
 
 
 

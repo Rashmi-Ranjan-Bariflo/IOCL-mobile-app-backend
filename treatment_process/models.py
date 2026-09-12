@@ -1133,16 +1133,6 @@ class StageBatchProcessEquipmentExecution(models.Model):
 
 
 class StageEquipmentConfig(models.Model):
-    """
-    Stores the approved configuration of an equipment
-    for a particular treatment stage.
-
-    This configuration is created/updated when a manual
-    equipment test is successfully merged.
-
-    Automatic stage execution uses this table as the
-    stage-specific equipment configuration.
-    """
 
     STATE_CHOICES = [
         ("OFF", "Off"),

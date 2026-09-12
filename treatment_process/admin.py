@@ -304,4 +304,35 @@ class StageBatchProcessEquipmentExecutionAdmin(admin.ModelAdmin):
 
 @admin.register(StageEquipmentConfig)
 class StageEquipmentConfigAdmin(admin.ModelAdmin):
-    list_display = ("id","equipment","stage","duration_seconds","current_state","status","start_time","end_time","is_active")
+
+    list_display = (
+        "id",
+        "get_equipment_name",
+        "stage",
+        "duration_seconds",
+        "current_state",
+        "status",
+        "start_time",
+        "end_time",
+        "is_active",
+    )
+
+    list_display_links = ("id",)
+
+    search_fields = (
+        "equipment__name",
+        "equipment__code",
+        "stage__name",
+    )
+
+    autocomplete_fields = (
+        "equipment",
+        "stage",
+    )
+
+    def get_equipment_name(self, obj):
+        if obj.equipment:
+            return f"{obj.equipment.name} ({obj.equipment.code})"
+        return "-"
+
+    get_equipment_name.short_description = "Equipment"

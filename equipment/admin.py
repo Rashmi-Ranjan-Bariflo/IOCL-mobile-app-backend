@@ -35,12 +35,7 @@ class EquipmentAdmin(admin.ModelAdmin):
         "name",
         "code",
         "equipment_type",
-        "description",
-        "serial_number",
-        "duration_seconds",
-        "current_state",
         "get_stages",  # ← Added
-        "status",
         "is_active",
         "created_at",
     )
@@ -58,7 +53,6 @@ class EquipmentAdmin(admin.ModelAdmin):
 
     list_filter = (
         "equipment_type",
-        "status",
         "is_active",
     )
 
@@ -67,7 +61,6 @@ class EquipmentAdmin(admin.ModelAdmin):
     autocomplete_fields = ("equipment_type",)
 
     def get_stages(self, obj):
-        """Show all stages this equipment is connected to"""
         stages = obj.treatment_stages.all()
         if stages.exists():
             return ", ".join([stage.name for stage in stages])
