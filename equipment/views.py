@@ -1,4 +1,7 @@
+from urllib.request import Request
+
 from rest_framework import status
+from rest_framework import response
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
@@ -261,23 +264,19 @@ class EquipmentListCreateView(APIView):
     # ------------------------------------------------------
     # POST - Create Equipment
     # ------------------------------------------------------
+
     def post(self, request):
-
         serializer = EquipmentSerializer(data=request.data)
-
         if serializer.is_valid():
-
-            equipment = serializer.save()
-
+            serializer.save()
             return Response(
                 {
                     "success": True,
                     "message": "Equipment created successfully.",
-                    "data": EquipmentSerializer(equipment).data,
+                    "data": serializer.data,
                 },
                 status=status.HTTP_201_CREATED,
             )
-
         return Response(
             {
                 "success": False,
