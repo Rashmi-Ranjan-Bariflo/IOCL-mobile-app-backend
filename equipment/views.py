@@ -1324,64 +1324,195 @@ class EquipmentManualLogByEquipmentView(APIView):
         )
 
 
+# ======================================================================
+#         MERGE MANUAL DURATION FOR ALL EQUIPMENTS OF A STAGE
+# ======================================================================
+
+
+class MergeManualDurationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, stage_id):
+
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
+        equipments = stage.equipments.all()
+
+        merged_data = []
+
+        for equipment in equipments:
+
+            config = StageEquipmentConfig.objects.filter(
+                stage=stage,
+                equipment=equipment,
+                is_active=True,
+            ).first()
+
+            if not config:
+                continue
+
+            logs = EquipmentManualLog.objects.filter(
+                stage=stage,
+                equipment=equipment,
+                action="ON",
+            ).order_by(
+                "started_at",
+                "id",
+            )
+
+            total_duration = 0
+
+            for log in logs:
+
+                if log.duration_seconds is not None:
+
+                    total_duration += log.duration_seconds
+
+                elif log.started_at and log.ended_at:
+
+                    duration = int((log.ended_at - log.started_at).total_seconds())
+
+                    total_duration += max(
+                        0,
+                        duration,
+                    )
+
+                elif log.started_at and config.current_state == "ON":
+
+                    duration = int((timezone.now() - log.started_at).total_seconds())
+
+                    total_duration += max(
+                        0,
+                        duration,
+                    )
+
+            config.duration_seconds = total_duration
+
+            config.save(
+                update_fields=[
+                    "duration_seconds",
+                    "updated_at",
+                ]
+            )
+
+            merged_data.append(
+                {
+                    "config_id": config.id,
+                    "equipment_id": equipment.id,
+                    "equipment_name": equipment.name,
+                    "current_state": config.current_state,
+                    "status": config.status,
+                    "duration_seconds": config.duration_seconds,
+                }
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "Manual durations for all stage " "equipments merged successfully."
+                ),
+                "stage": {
+                    "id": stage.id,
+                    "name": stage.name,
+                },
+                "count": len(merged_data),
+                "data": merged_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ======================================================================
+#              GET ALL EQUIPMENT DURATIONS OF A STAGE
+# ======================================================================
 class StageEquipmentsDurationView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, stage_id):
-        stage = get_object_or_404(TreatmentStage, id=stage_id)
+
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
+
         equipments = stage.equipments.select_related("equipment_type").all()
+
         data = []
-        for eq in equipments:
+
+        for equipment in equipments:
+
             config = StageEquipmentConfig.objects.filter(
-                equipment=eq,
+                equipment=equipment,
                 stage=stage,
                 is_active=True,
             ).first()
+
             current_state = config.current_state if config else "OFF"
+
             equipment_status = config.status if config else "INACTIVE"
+
+            duration_seconds = config.duration_seconds if config else 0
+
             latest_log = (
                 EquipmentManualLog.objects.filter(
-                    equipment=eq,
+                    equipment=equipment,
                     stage=stage,
                     action="ON",
                 )
-                .order_by("-started_at", "-id")
+                .order_by(
+                    "-started_at",
+                    "-id",
+                )
                 .first()
             )
-            duration_seconds = 0
-            started_at = None
-            ended_at = None
-            is_running = current_state == "ON"
-            if latest_log:
-                started_at = latest_log.started_at
-                ended_at = latest_log.ended_at
-                if current_state == "ON" and latest_log.ended_at is None:
-                    duration_seconds = max(
-                        0, int((timezone.now() - latest_log.started_at).total_seconds())
-                    )
-                else:
-                    duration_seconds = latest_log.duration_seconds or 0
+
+            started_at = latest_log.started_at if latest_log else None
+
+            ended_at = latest_log.ended_at if latest_log else None
+
+            if current_state == "ON" and latest_log and latest_log.ended_at is None:
+
+                live_duration = int(
+                    (timezone.now() - latest_log.started_at).total_seconds()
+                )
+
+                duration_seconds += max(
+                    0,
+                    live_duration,
+                )
+
             data.append(
                 {
-                    "id": eq.id,
-                    "name": eq.name,
-                    "code": eq.code,
+                    "id": equipment.id,
+                    "name": equipment.name,
+                    "code": equipment.code,
                     "equipment_type": (
-                        eq.equipment_type.name if eq.equipment_type else None
+                        equipment.equipment_type.name
+                        if equipment.equipment_type
+                        else None
                     ),
                     "current_state": current_state,
                     "status": equipment_status,
-                    "is_running": is_running,
-                    "latest_duration_seconds": duration_seconds,
+                    "is_running": (current_state == "ON"),
+                    "duration_seconds": duration_seconds,
                     "started_at": started_at,
                     "ended_at": ended_at,
                 }
             )
+
         return Response(
             {
                 "success": True,
-                "message": "Equipment durations under stage retrieved successfully.",
-                "stage": {"id": stage.id, "name": stage.name},
+                "message": (
+                    "Equipment durations under stage " "retrieved successfully."
+                ),
+                "stage": {
+                    "id": stage.id,
+                    "name": stage.name,
+                },
                 "count": len(data),
                 "data": data,
             },
