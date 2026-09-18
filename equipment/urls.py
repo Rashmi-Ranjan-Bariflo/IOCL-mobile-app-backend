@@ -42,9 +42,11 @@ urlpatterns = [
         EquipmentDetailView.as_view(),
         name="equipment-detail",
     ),
+    
     # Valve
     path("valve/<int:equipment_id>/on/", ValveOnView.as_view(), name="valve-on"),
     path("valve/<int:equipment_id>/off/", ValveOffView.as_view(), name="valve-off"),
+
     # Motor
     path("motor/<int:equipment_id>/on/", MotorOnView.as_view(), name="motor-on"),
     path("motor/<int:equipment_id>/off/", MotorOffView.as_view(), name="motor-off"),
@@ -63,11 +65,11 @@ urlpatterns = [
         name="merge-manual-duration",
     ),
     path(
-        "coagulant-dosing/motor/<int:equipment_id>/on/",
+        "coagulant/motor/<int:equipment_id>/on/",
         CoagulantDosingMotorOnView.as_view(),
     ),
     path(
-        "coagulant-dosing/motor/<int:equipment_id>/off/",
+        "coagulant/motor/<int:equipment_id>/off/",
         CoagulantDosingMotorOffView.as_view(),
     ),
 ]

@@ -128,9 +128,10 @@ class EquipmentSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Invalid equipment status.")
 
         return value
-
-# =======================================================================================================================================================
-# equipment/serializers.py
+0
+# =====================================================================================
+#                           equipment/serializers.py
+# =====================================================================================
 
 from rest_framework import serializers
 from .models import Equipment, EquipmentType, EquipmentManualLog
