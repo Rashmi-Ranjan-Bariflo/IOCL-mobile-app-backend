@@ -518,7 +518,7 @@ class ValveOnView(APIView):
                 )
                 .order_by("-started_at", "-id")
                 .first()
-            )
+            ) 
             return Response(
                 {
                     "success": False,
