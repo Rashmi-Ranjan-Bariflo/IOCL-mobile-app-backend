@@ -10,13 +10,13 @@ from equipment.models import Equipment
 class TreatmentStage(models.Model):
 
     STAGE_CHOICES = [
-        ("INLET","Inlet"),
+        ("INLET", "Inlet"),
         ("TREATMENT", "Treatment"),
         ("COAGULATION", "Coagulation"),
         ("FLOCCULATION", "Flocculation"),
         ("FILTER_SCREENING", "Filter / Screening"),
         ("AERATION", "Aeration"),
-        ("MIXING", "Mixing")
+        ("MIXING", "Mixing"),
     ]
 
     name = models.CharField(max_length=100, unique=True)
@@ -497,7 +497,6 @@ class ProcessExecutionLog(models.Model):
         return f"{self.batch.batch_number} - " f"{self.process.name}"
 
 
-
 # ==========================================================
 # STAGE BATCH
 # ==========================================================
@@ -511,40 +510,21 @@ class StageBatch(models.Model):
         ("STOPPED", "Stopped"),
     ]
 
-    batch_number = models.CharField(
-        max_length=50,
-        unique=True
-    )
+    batch_number = models.CharField(max_length=50, unique=True)
 
     stage = models.ForeignKey(
-        TreatmentStage,
-        on_delete=models.PROTECT,
-        related_name="stage_batches"
+        TreatmentStage, on_delete=models.PROTECT, related_name="stage_batches"
     )
 
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default="PENDING"
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
 
-    started_at = models.DateTimeField(
-        blank=True,
-        null=True
-    )
+    started_at = models.DateTimeField(blank=True, null=True)
 
-    completed_at = models.DateTimeField(
-        blank=True,
-        null=True
-    )
+    completed_at = models.DateTimeField(blank=True, null=True)
 
-    created_at = models.DateTimeField(
-        auto_now_add=True
-    )
+    created_at = models.DateTimeField(auto_now_add=True)
 
-    updated_at = models.DateTimeField(
-        auto_now=True
-    )
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "stage_batches"
@@ -552,13 +532,9 @@ class StageBatch(models.Model):
 
         indexes = [
             models.Index(
-                fields=["stage", "status"],
-                name="stage_batch_stage_status_idx"
+                fields=["stage", "status"], name="stage_batch_stage_status_idx"
             ),
-            models.Index(
-                fields=["status"],
-                name="stage_batch_status_idx"
-            ),
+            models.Index(fields=["status"], name="stage_batch_status_idx"),
         ]
 
     def start_batch(self):
@@ -623,8 +599,6 @@ class StageBatch(models.Model):
 
     def __str__(self):
         return self.batch_number
-
-
 
 
 # ==========================================================
@@ -735,9 +709,7 @@ class StageBatchProcessExecution(models.Model):
         self.completed_at = timezone.now()
 
         if self.started_at:
-            duration = (
-                self.completed_at - self.started_at
-            ).total_seconds()
+            duration = (self.completed_at - self.started_at).total_seconds()
 
             self.actual_duration_seconds = int(duration)
 
@@ -758,9 +730,7 @@ class StageBatchProcessExecution(models.Model):
         self.completed_at = timezone.now()
 
         if self.started_at:
-            duration = (
-                self.completed_at - self.started_at
-            ).total_seconds()
+            duration = (self.completed_at - self.started_at).total_seconds()
 
             self.actual_duration_seconds = int(duration)
 
@@ -784,9 +754,7 @@ class StageBatchProcessExecution(models.Model):
             self.remarks = remarks
 
         if self.started_at:
-            duration = (
-                self.completed_at - self.started_at
-            ).total_seconds()
+            duration = (self.completed_at - self.started_at).total_seconds()
 
             self.actual_duration_seconds = int(duration)
 
@@ -801,12 +769,7 @@ class StageBatchProcessExecution(models.Model):
         )
 
     def __str__(self):
-        return (
-            f"{self.stage_batch.batch_number} - "
-            f"{self.process.name}"
-        )
-
-
+        return f"{self.stage_batch.batch_number} - " f"{self.process.name}"
 
 
 # class StageBatchProcessEquipmentExecution(models.Model):
@@ -952,9 +915,6 @@ class StageBatchProcessExecution(models.Model):
 #         )
 
 
-
-
-
 from django.db import models
 from django.utils import timezone
 
@@ -1091,10 +1051,7 @@ class StageBatchProcessEquipmentExecution(models.Model):
 
         if self.started_at:
             self.actual_duration_seconds = int(
-                (
-                    self.completed_at -
-                    self.started_at
-                ).total_seconds()
+                (self.completed_at - self.started_at).total_seconds()
             )
 
         self.save(
@@ -1116,10 +1073,7 @@ class StageBatchProcessEquipmentExecution(models.Model):
 
         if self.started_at:
             self.actual_duration_seconds = int(
-                (
-                    self.completed_at -
-                    self.started_at
-                ).total_seconds()
+                (self.completed_at - self.started_at).total_seconds()
             )
 
         self.save(
@@ -1133,13 +1087,7 @@ class StageBatchProcessEquipmentExecution(models.Model):
         )
 
     def __str__(self):
-        return (
-            f"{self.stage_batch_process_execution} - "
-            f"{self.equipment.name}"
-        )
-
-
-
+        return f"{self.stage_batch_process_execution} - " f"{self.equipment.name}"
 
 
 class StageEquipmentConfig(models.Model):
@@ -1149,11 +1097,11 @@ class StageEquipmentConfig(models.Model):
         ("ON", "On"),
     ]
     STATUS_CHOICES = [
-            ("ACTIVE", "Active"),
-            ("INACTIVE", "Inactive"),
-            ("MAINTENANCE", "Maintenance"),
-            ("FAULT", "Fault"),
-        ]
+        ("ACTIVE", "Active"),
+        ("INACTIVE", "Inactive"),
+        ("MAINTENANCE", "Maintenance"),
+        ("FAULT", "Fault"),
+    ]
 
     equipment = models.ForeignKey(
         Equipment,
@@ -1178,19 +1126,13 @@ class StageEquipmentConfig(models.Model):
         default="OFF",
     )
     status = models.CharField(
-            max_length=20,
-            choices=STATUS_CHOICES,
-            default="ACTIVE",
-        )
-    start_time = models.TimeField(
-            blank=True,
-            null=True
-        )
-    
-    end_time = models.TimeField(
-        blank=True,
-        null=True
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="ACTIVE",
     )
+    start_time = models.TimeField(blank=True, null=True)
+
+    end_time = models.TimeField(blank=True, null=True)
 
     is_active = models.BooleanField(
         default=True,
@@ -1228,7 +1170,4 @@ class StageEquipmentConfig(models.Model):
         ]
 
     def __str__(self):
-        return (
-            f"{self.stage.name} - "
-            f"{self.equipment.name}"
-        )
+        return f"{self.stage.name} - " f"{self.equipment.name}"

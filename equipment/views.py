@@ -1324,26 +1324,19 @@ class EquipmentManualLogByEquipmentView(APIView):
         )
 
 
-# ======================================================================
-#         MERGE MANUAL DURATION FOR ALL EQUIPMENTS OF A STAGE
-# ======================================================================
 
 
 class MergeManualDurationView(APIView):
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, stage_id):
+        stage = get_object_or_404(TreatmentStage, id=stage_id)
 
-        stage = get_object_or_404(
-            TreatmentStage,
-            id=stage_id,
-        )
         equipments = stage.equipments.all()
-
         merged_data = []
 
         for equipment in equipments:
-
             config = StageEquipmentConfig.objects.filter(
                 stage=stage,
                 equipment=equipment,
@@ -1353,49 +1346,24 @@ class MergeManualDurationView(APIView):
             if not config:
                 continue
 
-            logs = EquipmentManualLog.objects.filter(
-                stage=stage,
-                equipment=equipment,
-                action="ON",
-            ).order_by(
-                "started_at",
-                "id",
+            # Only completed OFF logs that already have a duration
+            latest_log = (
+                EquipmentManualLog.objects.filter(
+                    stage=stage,
+                    equipment=equipment,
+                    action="OFF",
+                    duration_seconds__isnull=False,
+                    ended_at__isnull=False,
+                )
+                .order_by("-id")  
+                .first()
             )
 
-            total_duration = 0
+            if not latest_log:
+                continue
 
-            for log in logs:
-
-                if log.duration_seconds is not None:
-
-                    total_duration += log.duration_seconds
-
-                elif log.started_at and log.ended_at:
-
-                    duration = int((log.ended_at - log.started_at).total_seconds())
-
-                    total_duration += max(
-                        0,
-                        duration,
-                    )
-
-                elif log.started_at and config.current_state == "ON":
-
-                    duration = int((timezone.now() - log.started_at).total_seconds())
-
-                    total_duration += max(
-                        0,
-                        duration,
-                    )
-
-            config.duration_seconds = total_duration
-
-            config.save(
-                update_fields=[
-                    "duration_seconds",
-                    "updated_at",
-                ]
-            )
+            config.duration_seconds = latest_log.duration_seconds
+            config.save(update_fields=["duration_seconds", "updated_at"])
 
             merged_data.append(
                 {
@@ -1405,15 +1373,14 @@ class MergeManualDurationView(APIView):
                     "current_state": config.current_state,
                     "status": config.status,
                     "duration_seconds": config.duration_seconds,
+                    "manual_log_id": latest_log.id,
                 }
             )
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Manual durations for all stage " "equipments merged successfully."
-                ),
+                "message": "Latest manual duration merged successfully.",
                 "stage": {
                     "id": stage.id,
                     "name": stage.name,
@@ -1425,64 +1392,22 @@ class MergeManualDurationView(APIView):
         )
 
 
-# ======================================================================
-#              GET ALL EQUIPMENT DURATIONS OF A STAGE
-# ======================================================================
 class StageEquipmentsDurationView(APIView):
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, stage_id):
-
-        stage = get_object_or_404(
-            TreatmentStage,
-            id=stage_id,
-        )
+        stage = get_object_or_404(TreatmentStage, id=stage_id)
 
         equipments = stage.equipments.select_related("equipment_type").all()
 
         data = []
-
         for equipment in equipments:
-
             config = StageEquipmentConfig.objects.filter(
                 equipment=equipment,
                 stage=stage,
                 is_active=True,
             ).first()
-
-            current_state = config.current_state if config else "OFF"
-
-            equipment_status = config.status if config else "INACTIVE"
-
-            duration_seconds = config.duration_seconds if config else 0
-
-            latest_log = (
-                EquipmentManualLog.objects.filter(
-                    equipment=equipment,
-                    stage=stage,
-                    action="ON",
-                )
-                .order_by(
-                    "-started_at",
-                    "-id",
-                )
-                .first()
-            )
-
-            started_at = latest_log.started_at if latest_log else None
-
-            ended_at = latest_log.ended_at if latest_log else None
-
-            if current_state == "ON" and latest_log and latest_log.ended_at is None:
-
-                live_duration = int(
-                    (timezone.now() - latest_log.started_at).total_seconds()
-                )
-
-                duration_seconds += max(
-                    0,
-                    live_duration,
-                )
 
             data.append(
                 {
@@ -1494,21 +1419,17 @@ class StageEquipmentsDurationView(APIView):
                         if equipment.equipment_type
                         else None
                     ),
-                    "current_state": current_state,
-                    "status": equipment_status,
-                    "is_running": (current_state == "ON"),
-                    "duration_seconds": duration_seconds,
-                    "started_at": started_at,
-                    "ended_at": ended_at,
+                    "current_state": config.current_state if config else "OFF",
+                    "status": config.status if config else "INACTIVE",
+                    "is_running": (config.current_state == "ON" if config else False),
+                    "duration_seconds": (config.duration_seconds if config else 0),
                 }
             )
 
         return Response(
             {
                 "success": True,
-                "message": (
-                    "Equipment durations under stage " "retrieved successfully."
-                ),
+                "message": "Equipment durations under stage retrieved successfully.",
                 "stage": {
                     "id": stage.id,
                     "name": stage.name,
@@ -1629,7 +1550,7 @@ class CoagulantDosingMotorOnView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Coagulant Dosing Motor turned ON successfully.",
+                "message": "Motor turned ON successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": log.id,
@@ -1786,7 +1707,7 @@ class CoagulantDosingMotorOffView(APIView):
         return Response(
             {
                 "success": True,
-                "message": "Coagulant Dosing Motor turned OFF successfully.",
+                "message": "Motor turned OFF successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": off_log.id,
@@ -1929,6 +1850,308 @@ class CoagulantDosingMotorAutoOnView(APIView):
                     "started_at": log.started_at,
                     "ended_at": None,
                     "duration_seconds": 0,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ==============================================================
+#                           BLOWER ON
+# ==============================================================
+class BlowerOnView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, equipment_id):
+        equipment = get_object_or_404(
+            Equipment.objects.select_related("equipment_type"),
+            id=equipment_id,
+        )
+
+        if not equipment.equipment_type:
+            return Response(
+                {"detail": "Equipment type is not configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        equipment_type = equipment.equipment_type.name.lower()
+
+        if "blower" not in equipment_type:
+            return Response(
+                {
+                    "detail": (
+                        "This equipment is not a Blower. "
+                        f"Current type: {equipment.equipment_type.name}"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stage_id = request.data.get("stage_id")
+
+        if not stage_id:
+            return Response(
+                {"detail": "stage_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
+
+        config, created = StageEquipmentConfig.objects.get_or_create(
+            equipment=equipment,
+            stage=stage,
+        )
+
+        if config.current_state == "ON":
+            latest_on_log = (
+                EquipmentManualLog.objects.filter(
+                    equipment=equipment,
+                    stage=stage,
+                    action="ON",
+                    ended_at__isnull=True,
+                )
+                .order_by("-started_at", "-id")
+                .first()
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Blower is already ON.",
+                    "data": {
+                        "config_id": config.id,
+                        "log_id": latest_on_log.id if latest_on_log else None,
+                        "equipment_id": equipment.id,
+                        "equipment_name": equipment.name,
+                        "equipment_code": equipment.code,
+                        "action": "ON",
+                        "status": config.status,
+                        "current_state": config.current_state,
+                        "started_at": (
+                            latest_on_log.started_at if latest_on_log else None
+                        ),
+                        "ended_at": None,
+                        "duration_seconds": 0,
+                        "stage": {
+                            "id": stage.id,
+                            "name": stage.name,
+                        },
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+
+        with transaction.atomic():
+            log = EquipmentManualLog.objects.create(
+                equipment=equipment,
+                stage=stage,
+                action="ON",
+                started_at=now,
+                performed_by=request.user,
+            )
+
+            config.current_state = "ON"
+
+            config.save(
+                update_fields=[
+                    "current_state",
+                    "updated_at",
+                ]
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Blower turned ON successfully.",
+                "data": {
+                    "config_id": config.id,
+                    "log_id": log.id,
+                    "equipment": {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": equipment.equipment_type.name,
+                    },
+                    "action": "ON",
+                    "status": config.status,
+                    "current_state": config.current_state,
+                    "started_at": log.started_at,
+                    "ended_at": None,
+                    "duration_seconds": 0,
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
+                    "performed_by": request.user.id,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ==============================================================
+#                           BLOWER OFF
+# ==============================================================
+class BlowerOffView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, equipment_id):
+        equipment = get_object_or_404(
+            Equipment.objects.select_related("equipment_type"),
+            id=equipment_id,
+        )
+
+        if not equipment.equipment_type:
+            return Response(
+                {"detail": "Equipment type is not configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        equipment_type = equipment.equipment_type.name.lower()
+
+        if "blower" not in equipment_type:
+            return Response(
+                {
+                    "detail": (
+                        "This equipment is not a Blower. "
+                        f"Current type: {equipment.equipment_type.name}"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stage_id = request.data.get("stage_id")
+
+        if not stage_id:
+            return Response(
+                {"detail": "stage_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        stage = get_object_or_404(
+            TreatmentStage,
+            id=stage_id,
+        )
+
+        config = StageEquipmentConfig.objects.filter(
+            equipment=equipment,
+            stage=stage,
+        ).first()
+
+        if not config:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "StageEquipmentConfig does not exist for this blower and stage.",
+                    "equipment_id": equipment.id,
+                    "stage_id": stage.id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if config.current_state == "OFF":
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Blower is already OFF.",
+                    "data": {
+                        "config_id": config.id,
+                        "equipment_id": equipment.id,
+                        "stage_id": stage.id,
+                        "status": config.status,
+                        "current_state": config.current_state,
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        open_log = (
+            EquipmentManualLog.objects.filter(
+                equipment=equipment,
+                stage=stage,
+                action="ON",
+                ended_at__isnull=True,
+            )
+            .order_by("-started_at", "-id")
+            .first()
+        )
+
+        if not open_log:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "No open ON log found for this blower.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+
+        duration = max(
+            0,
+            int((now - open_log.started_at).total_seconds()),
+        )
+
+        with transaction.atomic():
+            open_log.ended_at = now
+            open_log.duration_seconds = duration
+
+            open_log.save(
+                update_fields=[
+                    "ended_at",
+                    "duration_seconds",
+                ]
+            )
+
+            off_log = EquipmentManualLog.objects.create(
+                equipment=equipment,
+                stage=stage,
+                action="OFF",
+                started_at=now,
+                ended_at=now,
+                duration_seconds=duration,
+                performed_by=request.user,
+            )
+
+            config.current_state = "OFF"
+
+            config.save(
+                update_fields=[
+                    "current_state",
+                    "updated_at",
+                ]
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Blower turned OFF successfully.",
+                "data": {
+                    "config_id": config.id,
+                    "log_id": off_log.id,
+                    "previous_on_log_id": open_log.id,
+                    "equipment": {
+                        "id": equipment.id,
+                        "name": equipment.name,
+                        "code": equipment.code,
+                        "equipment_type": equipment.equipment_type.name,
+                    },
+                    "action": "OFF",
+                    "status": config.status,
+                    "current_state": config.current_state,
+                    "started_at": open_log.started_at,
+                    "ended_at": now,
+                    "duration_seconds": duration,
+                    "stage": {
+                        "id": stage.id,
+                        "name": stage.name,
+                    },
+                    "performed_by": request.user.id,
                 },
             },
             status=status.HTTP_200_OK,
