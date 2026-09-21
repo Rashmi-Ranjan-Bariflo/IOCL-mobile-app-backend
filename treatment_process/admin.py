@@ -292,13 +292,13 @@ class StageBatchAdmin(admin.ModelAdmin):
 
 @admin.register(StageBatchProcessExecution)
 class StageBatchProcessExecutionAdmin(admin.ModelAdmin):
-    list_display = ("id","stage_batch","process","status","started_at")
+    list_display = ("id","stage_batch","process","status","started_at","completed_at")
 
 
 
 @admin.register(StageBatchProcessEquipmentExecution)
 class StageBatchProcessEquipmentExecutionAdmin(admin.ModelAdmin):
-    list_display = ("id","stage_batch_process_execution", "equipment","state","status")
+    list_display = ("id","stage_batch_process_execution", "equipment","state","status","started_at","completed_at")
 
 
 
@@ -315,6 +315,8 @@ class StageEquipmentConfigAdmin(admin.ModelAdmin):
         "start_time",
         "end_time",
         "is_active",
+        "created_at",
+        "updated_at"
     )
 
     list_display_links = ("id",)

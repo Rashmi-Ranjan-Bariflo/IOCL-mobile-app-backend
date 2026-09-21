@@ -2004,7 +2004,7 @@ class StageProcessLogListView(APIView):
                     "stage_batch",
                     "process",
                 )
-                .order_by("-created_at")[:50]
+                .order_by("-created_at")[:2]
             )
 
             data = []

@@ -1301,33 +1301,125 @@ class Command(BaseCommand):
     # PROCESS RUNNING STAGES
     # =========================================================
 
+    # def process_running_stages(self):
+    #     """
+    #     Continue all currently RUNNING StageBatches.
+
+    #     A stage with a WAITING equipment execution must not
+    #     start another process.
+
+    #     The waiting equipment is handled separately by:
+
+    #         process_waiting_equipment()
+    #     """
+
+    #     running_stages = (
+    #         StageBatch.objects
+    #         .filter(
+    #             status="RUNNING",
+    #         )
+    #         .order_by(
+    #             "created_at",
+    #         )
+    #     )
+
+    #     for stage_batch in running_stages:
+
+    #         # -------------------------------------------------
+    #         # If this stage has a WAITING equipment execution,
+    #         # do not start another process.
+    #         # -------------------------------------------------
+
+    #         has_waiting_equipment = (
+    #             StageBatchProcessEquipmentExecution.objects
+    #             .filter(
+    #                 stage_batch_process_execution__stage_batch=stage_batch,
+    #                 status="WAITING",
+    #             )
+    #             .exists()
+    #         )
+
+    #         if has_waiting_equipment:
+    #             continue
+
+    #         # -------------------------------------------------
+    #         # If there is already a RUNNING process, do not
+    #         # start another one.
+    #         #
+    #         # The process will be continued by StageExecutionService.
+    #         # -------------------------------------------------
+
+    #         has_running_process = (
+    #             StageBatchProcessExecution.objects
+    #             .filter(
+    #                 stage_batch=stage_batch,
+    #                 status="RUNNING",
+    #             )
+    #             .exists()
+    #         )
+
+    #         # -------------------------------------------------
+    #         # If a RUNNING process exists but has no WAITING
+    #         # equipment, let the service continue it.
+    #         #
+    #         # Therefore we do NOT return here.
+    #         # -------------------------------------------------
+
+    #         try:
+
+    #             service = StageExecutionService(
+    #                 stage_batch=stage_batch,
+    #             )
+
+    #             service.execute()
+
+    #         except Exception as exc:
+
+    #             try:
+
+    #                 stage_batch.refresh_from_db(
+    #                     fields=["status"]
+    #                 )
+
+    #                 if stage_batch.status == "RUNNING":
+
+    #                     stage_batch.fail_batch()
+
+    #                     service = StageExecutionService(
+    #                         stage_batch=stage_batch,
+    #                     )
+
+    #                     service.deactivate_stage_equipment()
+
+    #             except Exception as cleanup_exc:
+
+    #                 self.stderr.write(
+    #                     f"Stage {stage_batch.id} "
+    #                     f"cleanup failed: {cleanup_exc}"
+    #                 )
+
+    #             self.stderr.write(
+    #                 f"Stage {stage_batch.id} "
+    #                 f"failed: {exc}"
+    #             )
+
     def process_running_stages(self):
-        """
-        Continue all currently RUNNING StageBatches.
-
-        A stage with a WAITING equipment execution must not
-        start another process.
-
-        The waiting equipment is handled separately by:
-
-            process_waiting_equipment()
-        """
 
         running_stages = (
             StageBatch.objects
             .filter(
                 status="RUNNING",
             )
-            .order_by(
-                "created_at",
-            )
+            .order_by("created_at")
         )
 
         for stage_batch in running_stages:
 
             # -------------------------------------------------
-            # If this stage has a WAITING equipment execution,
-            # do not start another process.
+            # If an equipment execution is WAITING,
+            # do not execute the stage again.
+            #
+            # process_waiting_equipment() will handle it.
             # -------------------------------------------------
 
             has_waiting_equipment = (
@@ -1343,10 +1435,7 @@ class Command(BaseCommand):
                 continue
 
             # -------------------------------------------------
-            # If there is already a RUNNING process, do not
-            # start another one.
-            #
-            # The process will be continued by StageExecutionService.
+            # Check whether a process is already RUNNING.
             # -------------------------------------------------
 
             has_running_process = (
@@ -1359,11 +1448,15 @@ class Command(BaseCommand):
             )
 
             # -------------------------------------------------
-            # If a RUNNING process exists but has no WAITING
-            # equipment, let the service continue it.
+            # If a process is already running, don't start
+            # another stage execution from this worker cycle.
             #
-            # Therefore we do NOT return here.
+            # The running process will continue through the
+            # appropriate execution/resume flow.
             # -------------------------------------------------
+
+            if has_running_process:
+                continue
 
             try:
 
@@ -1375,31 +1468,7 @@ class Command(BaseCommand):
 
             except Exception as exc:
 
-                try:
-
-                    stage_batch.refresh_from_db(
-                        fields=["status"]
-                    )
-
-                    if stage_batch.status == "RUNNING":
-
-                        stage_batch.fail_batch()
-
-                        service = StageExecutionService(
-                            stage_batch=stage_batch,
-                        )
-
-                        service.deactivate_stage_equipment()
-
-                except Exception as cleanup_exc:
-
-                    self.stderr.write(
-                        f"Stage {stage_batch.id} "
-                        f"cleanup failed: {cleanup_exc}"
-                    )
-
                 self.stderr.write(
                     f"Stage {stage_batch.id} "
-                    f"failed: {exc}"
+                    f"execution failed: {exc}"
                 )
-

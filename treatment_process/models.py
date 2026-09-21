@@ -16,6 +16,7 @@ class TreatmentStage(models.Model):
         ("FLOCCULATION", "Flocculation"),
         ("FILTER_SCREENING", "Filter / Screening"),
         ("AERATION", "Aeration"),
+        ("MIXING", "Mixing")
     ]
 
     name = models.CharField(max_length=100, unique=True)
@@ -1047,6 +1048,15 @@ class StageBatchProcessEquipmentExecution(models.Model):
             models.Index(
                 fields=["stage_batch_process_execution"],
                 name="equipment_exec_process_idx",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "stage_batch_process_execution",
+                    "equipment",
+                ],
+                name="unique_process_equipment_execution",
             ),
         ]
 

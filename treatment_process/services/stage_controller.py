@@ -3954,19 +3954,102 @@ class StageExecutionService:
             # Execute equipment sequentially.
             # -------------------------------------------------
 
+            # for equipment in equipments:
+
+            #     # -------------------------------------------------
+            #     # Do not execute an equipment operation twice
+            #     # when the process is being resumed.
+            #     # -------------------------------------------------
+
+            #     if equipment.id in completed_equipment_ids:
+            #         continue
+
+            #     # -------------------------------------------------
+            #     # Check stage status before every equipment.
+            #     # This allows STOP to prevent further operations.
+            #     # -------------------------------------------------
+
+            #     self.stage_batch.refresh_from_db(
+            #         fields=["status"]
+            #     )
+
+            #     if self.stage_batch.status != "RUNNING":
+            #         return self.stage_batch.status
+
+            #     result = self.execute_equipment(
+            #         process_execution=process_execution,
+            #         equipment=equipment,
+            #     )
+
+            #     # -------------------------------------------------
+            #     # If equipment is waiting for its duration,
+            #     # STOP processing this process.
+            #     #
+            #     # The process remains RUNNING.
+            #     #
+            #     # The worker will later resume it.
+            #     # -------------------------------------------------
+
+            #     if result == "WAITING":
+
+            #         return "WAITING"
+
+            # -----------------------------------------------------
+            # Execute equipment sequentially.
+            # -----------------------------------------------------
+
             for equipment in equipments:
 
                 # -------------------------------------------------
-                # Do not execute an equipment operation twice
-                # when the process is being resumed.
+                # Check whether this equipment operation was already
+                # completed for this process.
                 # -------------------------------------------------
 
-                if equipment.id in completed_equipment_ids:
-                    continue
+                existing_execution = (
+                    StageBatchProcessEquipmentExecution.objects
+                    .filter(
+                        stage_batch_process_execution=process_execution,
+                        equipment=equipment,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
 
                 # -------------------------------------------------
-                # Check stage status before every equipment.
-                # This allows STOP to prevent further operations.
+                # If an execution already exists:
+                #
+                # COMPLETED
+                #     -> Do not execute again.
+                #
+                # WAITING
+                #     -> Do not create another execution.
+                #        Worker will handle it.
+                #
+                # STARTED / RUNNING
+                #     -> Do not create another execution.
+                # -------------------------------------------------
+
+                if existing_execution:
+
+                    if existing_execution.status == "COMPLETED":
+                        continue
+
+                    if existing_execution.status in [
+                        "WAITING",
+                        "STARTED",
+                        "RUNNING",
+                    ]:
+                        return existing_execution.status
+
+                    # -------------------------------------------------
+                    # FAILED / STOPPED
+                    #
+                    # Do not reuse the old failed/stopped execution.
+                    # Let the normal flow raise/handle the situation.
+                    # -------------------------------------------------
+
+                # -------------------------------------------------
+                # Check stage status before starting a new operation.
                 # -------------------------------------------------
 
                 self.stage_batch.refresh_from_db(
@@ -3983,15 +4066,10 @@ class StageExecutionService:
 
                 # -------------------------------------------------
                 # If equipment is waiting for its duration,
-                # STOP processing this process.
-                #
-                # The process remains RUNNING.
-                #
-                # The worker will later resume it.
+                # stop processing this process.
                 # -------------------------------------------------
 
                 if result == "WAITING":
-
                     return "WAITING"
 
             # -------------------------------------------------
@@ -4167,6 +4245,33 @@ class StageExecutionService:
         # Create an execution record for THIS process +
         # equipment combination.
         # -----------------------------------------------------
+
+        # -----------------------------------------------------
+        # Check whether an execution already exists for this
+        # process + equipment combination.
+        # -----------------------------------------------------
+
+        existing_execution = (
+            StageBatchProcessEquipmentExecution.objects
+            .filter(
+                stage_batch_process_execution=process_execution,
+                equipment=equipment,
+            )
+            .order_by("-id")
+            .first()
+        )
+
+        if existing_execution:
+
+            if existing_execution.status == "COMPLETED":
+                return "COMPLETED"
+
+            if existing_execution.status in [
+                "WAITING",
+                "STARTED",
+                "RUNNING",
+            ]:
+                return existing_execution.status
 
         equipment_execution = (
             StageBatchProcessEquipmentExecution.objects.create(
