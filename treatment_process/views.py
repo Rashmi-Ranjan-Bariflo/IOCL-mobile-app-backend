@@ -15,7 +15,7 @@ from .models import (
     DosingRecord,
     ProcessExecutionLog,
     StageBatch,
-    StageBatchProcessExecution
+    StageBatchProcessExecution,
 )
 
 from .serializers import (
@@ -1530,8 +1530,6 @@ class InletStageEquipmentView(APIView):
         )
 
 
-
-
 # class TreatmentStageEquipmentListView(APIView):
 
 #     permission_classes = [IsAuthenticated]
@@ -1643,10 +1641,6 @@ class InletStageEquipmentView(APIView):
 #                 },
 #                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
 #             )
-
-
-
-
 
 
 # class TreatmentStageEquipmentListView(APIView):
@@ -1841,8 +1835,7 @@ class TreatmentStageEquipmentListView(APIView):
             # and equipment type.
             # ---------------------------------------------------------
             stage = (
-                TreatmentStage.objects
-                .filter(
+                TreatmentStage.objects.filter(
                     id=stage_id,
                     user=request.user,
                     is_active=True,
@@ -1850,8 +1843,7 @@ class TreatmentStageEquipmentListView(APIView):
                 .prefetch_related(
                     Prefetch(
                         "equipments",
-                        queryset=Equipment.objects
-                        .filter(is_active=True)
+                        queryset=Equipment.objects.filter(is_active=True)
                         .select_related("equipment_type")
                         .order_by("name"),
                     )
@@ -1913,9 +1905,7 @@ class TreatmentStageEquipmentListView(APIView):
             # ---------------------------------------------------------
             # Convert dictionary to list
             # ---------------------------------------------------------
-            equipment_type_data = list(
-                equipment_types.values()
-            )
+            equipment_type_data = list(equipment_types.values())
 
             # ---------------------------------------------------------
             # Final response
@@ -1946,8 +1936,6 @@ class TreatmentStageEquipmentListView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
 
 
 from rest_framework.views import APIView
@@ -1996,8 +1984,7 @@ class StageProcessLogListView(APIView):
             # belonging to this stage
             # ---------------------------------------------------------
             process_logs = (
-                StageBatchProcessExecution.objects
-                .filter(
+                StageBatchProcessExecution.objects.filter(
                     stage_batch__stage=stage,
                 )
                 .select_related(
@@ -2014,29 +2001,15 @@ class StageProcessLogListView(APIView):
                 data.append(
                     {
                         "id": log.id,
-
                         "batch_id": log.stage_batch.id,
-
-                        "batch_number": (
-                            log.stage_batch.batch_number
-                        ),
-
+                        "batch_number": (log.stage_batch.batch_number),
                         "process_id": log.process.id,
-
                         "process_name": log.process.name,
-
                         "sequence": log.process.sequence,
-
                         "status": log.status,
-
                         "started_at": log.started_at,
-
                         "completed_at": log.completed_at,
-
-                        "actual_duration_seconds": (
-                            log.actual_duration_seconds
-                        ),
-
+                        "actual_duration_seconds": (log.actual_duration_seconds),
                         "remarks": log.remarks,
                     }
                 )
@@ -2044,10 +2017,7 @@ class StageProcessLogListView(APIView):
             return Response(
                 {
                     "success": True,
-                    "message": (
-                        "Stage process logs "
-                        "retrieved successfully."
-                    ),
+                    "message": ("Stage process logs " "retrieved successfully."),
                     "count": len(data),
                     "data": data,
                 },
@@ -2059,14 +2029,12 @@ class StageProcessLogListView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Failed to retrieve "
-                        "stage process logs."
-                    ),
+                    "message": ("Failed to retrieve " "stage process logs."),
                     "error": str(e),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
 
 # class StageBatchStartView(APIView):
 
@@ -2291,9 +2259,6 @@ class StageProcessLogListView(APIView):
 #             )
 
 
-
-
-
 from django.db import transaction
 
 from rest_framework.views import APIView
@@ -2367,7 +2332,6 @@ from treatment_process.models import (
 from treatment_process.services.stage_execution_runner import (
     run_stage_batch,
 )
-
 
 # class StageBatchStartView(APIView):
 #     """
@@ -2834,8 +2798,6 @@ from treatment_process.services.stage_execution_runner import (
 #             )
 
 
-
-
 from django.db import transaction
 
 from rest_framework.views import APIView
@@ -2907,16 +2869,12 @@ class StageBatchStartView(APIView):
 
             try:
 
-                stage = (
-                    TreatmentStage.objects
-                    .prefetch_related(
-                        "equipments",
-                        "processes__equipments",
-                    )
-                    .get(
-                        id=stage_id,
-                        user=request.user,
-                    )
+                stage = TreatmentStage.objects.prefetch_related(
+                    "equipments",
+                    "processes__equipments",
+                ).get(
+                    id=stage_id,
+                    user=request.user,
                 )
 
             except TreatmentStage.DoesNotExist:
@@ -2947,23 +2905,17 @@ class StageBatchStartView(APIView):
             # CHECK WHETHER THIS STAGE IS ALREADY RUNNING
             # =====================================================
 
-            running_batch = (
-                StageBatch.objects
-                .filter(
-                    stage=stage,
-                    status="RUNNING",
-                )
-                .first()
-            )
+            running_batch = StageBatch.objects.filter(
+                stage=stage,
+                status="RUNNING",
+            ).first()
 
             if running_batch:
 
                 return Response(
                     {
                         "success": False,
-                        "message": (
-                            "This treatment stage is already running."
-                        ),
+                        "message": ("This treatment stage is already running."),
                         "batch_id": running_batch.id,
                         "batch_number": running_batch.batch_number,
                     },
@@ -2989,8 +2941,7 @@ class StageBatchStartView(APIView):
             # =====================================================
 
             stage_equipments = list(
-                stage.equipments
-                .filter(
+                stage.equipments.filter(
                     is_active=True,
                 )
                 .select_related(
@@ -3005,8 +2956,7 @@ class StageBatchStartView(APIView):
                     {
                         "success": False,
                         "message": (
-                            "No active equipment is configured "
-                            "for this stage."
+                            "No active equipment is configured " "for this stage."
                         ),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
@@ -3020,10 +2970,7 @@ class StageBatchStartView(APIView):
                 config.equipment_id: config
                 for config in StageEquipmentConfig.objects.filter(
                     stage=stage,
-                    equipment_id__in=[
-                        equipment.id
-                        for equipment in stage_equipments
-                    ],
+                    equipment_id__in=[equipment.id for equipment in stage_equipments],
                 )
             }
 
@@ -3033,9 +2980,7 @@ class StageBatchStartView(APIView):
 
             for equipment in stage_equipments:
 
-                config = stage_configs.get(
-                    equipment.id
-                )
+                config = stage_configs.get(equipment.id)
 
                 # -------------------------------------------------
                 # Every stage equipment must have a configuration.
@@ -3072,8 +3017,7 @@ class StageBatchStartView(APIView):
                         {
                             "success": False,
                             "message": (
-                                f"Equipment '{equipment.name}' "
-                                "is under maintenance."
+                                f"Equipment '{equipment.name}' " "is under maintenance."
                             ),
                             "equipment_id": equipment.id,
                         },
@@ -3086,8 +3030,7 @@ class StageBatchStartView(APIView):
                         {
                             "success": False,
                             "message": (
-                                f"Equipment '{equipment.name}' "
-                                "is in fault state."
+                                f"Equipment '{equipment.name}' " "is in fault state."
                             ),
                             "equipment_id": equipment.id,
                         },
@@ -3099,8 +3042,7 @@ class StageBatchStartView(APIView):
             # =====================================================
 
             processes = list(
-                stage.processes
-                .filter(
+                stage.processes.filter(
                     is_active=True,
                 )
                 .prefetch_related(
@@ -3117,8 +3059,7 @@ class StageBatchStartView(APIView):
                     {
                         "success": False,
                         "message": (
-                            "No active processes are configured "
-                            "for this stage."
+                            "No active processes are configured " "for this stage."
                         ),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
@@ -3142,8 +3083,7 @@ class StageBatchStartView(APIView):
             for process in processes:
 
                 process_equipments = list(
-                    process.equipments
-                    .filter(
+                    process.equipments.filter(
                         is_active=True,
                     )
                     .select_related(
@@ -3186,14 +3126,10 @@ class StageBatchStartView(APIView):
 
                 for equipment in process_equipments:
 
-                    config = (
-                        StageEquipmentConfig.objects
-                        .filter(
-                            stage=stage,
-                            equipment=equipment,
-                        )
-                        .first()
-                    )
+                    config = StageEquipmentConfig.objects.filter(
+                        stage=stage,
+                        equipment=equipment,
+                    ).first()
 
                     # -------------------------------------------------
                     # If this process equipment has no configuration
@@ -3260,20 +3196,13 @@ class StageBatchStartView(APIView):
                 # Keep the old batch-number generation logic.
                 # -------------------------------------------------
 
-                last_batch = (
-                    StageBatch.objects
-                    .order_by("-id")
-                    .first()
-                )
+                last_batch = StageBatch.objects.order_by("-id").first()
 
                 if last_batch:
 
                     try:
 
-                        last_number = int(
-                            last_batch.batch_number
-                            .split("-")[-1]
-                        )
+                        last_number = int(last_batch.batch_number.split("-")[-1])
 
                     except (ValueError, AttributeError):
 
@@ -3283,10 +3212,7 @@ class StageBatchStartView(APIView):
 
                     last_number = 0
 
-                batch_number = (
-                    f"STAGE-{stage.id}-"
-                    f"{last_number + 1:06d}"
-                )
+                batch_number = f"STAGE-{stage.id}-" f"{last_number + 1:06d}"
 
                 # -------------------------------------------------
                 # Create StageBatch.
@@ -3306,17 +3232,13 @@ class StageBatchStartView(APIView):
 
                 for process in processes:
 
-                    process_execution = (
-                        StageBatchProcessExecution.objects.create(
-                            stage_batch=stage_batch,
-                            process=process,
-                            status="PENDING",
-                        )
+                    process_execution = StageBatchProcessExecution.objects.create(
+                        stage_batch=stage_batch,
+                        process=process,
+                        status="PENDING",
                     )
 
-                    process_executions.append(
-                        process_execution
-                    )
+                    process_executions.append(process_execution)
 
                 # =================================================
                 # ACTIVATE STAGE EQUIPMENT
@@ -3342,9 +3264,7 @@ class StageBatchStartView(APIView):
 
                 for equipment in stage_equipments:
 
-                    config = stage_configs[
-                        equipment.id
-                    ]
+                    config = stage_configs[equipment.id]
 
                     config.status = "ACTIVE"
                     config.current_state = "OFF"
@@ -3378,39 +3298,25 @@ class StageBatchStartView(APIView):
 
             for equipment in stage_equipments:
 
-                config = stage_configs[
-                    equipment.id
-                ]
+                config = stage_configs[equipment.id]
 
                 equipment_data.append(
                     {
                         "id": equipment.id,
                         "name": equipment.name,
                         "code": equipment.code,
-
-                        "equipment_type": (
-                            equipment.equipment_type.name
-                        ),
-
+                        "equipment_type": (equipment.equipment_type.name),
                         # Physical equipment availability.
                         "is_active": equipment.is_active,
-
                         # Stage runtime status.
                         "status": config.status,
-
                         # Current automatic state.
-                        "current_state": (
-                            config.current_state
-                        ),
-
+                        "current_state": (config.current_state),
                         # Runtime start/end times.
                         "start_time": config.start_time,
                         "end_time": config.end_time,
-
                         # Configured duration.
-                        "duration_seconds": (
-                            config.duration_seconds
-                        ),
+                        "duration_seconds": (config.duration_seconds),
                     }
                 )
 
@@ -3425,15 +3331,9 @@ class StageBatchStartView(APIView):
                 process_data.append(
                     {
                         "id": process_execution.id,
-                        "process_id": (
-                            process_execution.process_id
-                        ),
-                        "process_name": (
-                            process_execution.process.name
-                        ),
-                        "sequence": (
-                            process_execution.process.sequence
-                        ),
+                        "process_id": (process_execution.process_id),
+                        "process_name": (process_execution.process.name),
+                        "sequence": (process_execution.process.sequence),
                         "status": process_execution.status,
                     }
                 )
@@ -3445,24 +3345,15 @@ class StageBatchStartView(APIView):
             return Response(
                 {
                     "success": True,
-                    "message": (
-                        "Stage execution started successfully."
-                    ),
+                    "message": ("Stage execution started successfully."),
                     "data": {
                         "stage_id": stage.id,
                         "stage_name": stage.name,
-
                         "batch_id": stage_batch.id,
-                        "batch_number": (
-                            stage_batch.batch_number
-                        ),
-
+                        "batch_number": (stage_batch.batch_number),
                         "status": stage_batch.status,
-
                         "execution": "RUNNING_IN_BACKGROUND",
-
                         "equipments": equipment_data,
-
                         "processes": process_data,
                     },
                 },
@@ -3474,14 +3365,11 @@ class StageBatchStartView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Failed to start stage execution."
-                    ),
+                    "message": ("Failed to start stage execution."),
                     "error": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
 
 
 # from django.db import transaction
@@ -3502,8 +3390,6 @@ class StageBatchStartView(APIView):
 # from treatment_process.services.stage_controller import (
 #     StageExecutionService,
 # )
-
-
 
 
 # class StageBatchStopView(APIView):
@@ -3855,7 +3741,6 @@ class StageBatchStartView(APIView):
 #                 },
 #                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
 #             )
-
 
 
 # from django.db import transaction
@@ -4246,8 +4131,6 @@ class StageBatchStartView(APIView):
 #             )
 
 
-
-
 from django.db import transaction
 from django.utils import timezone
 
@@ -4267,8 +4150,6 @@ from treatment_process.models import (
 from treatment_process.services.stage_controller import (
     StageExecutionService,
 )
-
-
 
 
 from django.db import transaction
@@ -4365,24 +4246,18 @@ class StageBatchStopView(APIView):
             # 1. GET TREATMENT STAGE
             # =========================================================
 
-            stage = (
-                TreatmentStage.objects
-                .filter(
-                    id=stage_id,
-                    user=request.user,
-                    is_active=True,
-                )
-                .first()
-            )
+            stage = TreatmentStage.objects.filter(
+                id=stage_id,
+                user=request.user,
+                is_active=True,
+            ).first()
 
             if not stage:
 
                 return Response(
                     {
                         "success": False,
-                        "message": (
-                            "Treatment stage not found."
-                        ),
+                        "message": ("Treatment stage not found."),
                     },
                     status=status.HTTP_404_NOT_FOUND,
                 )
@@ -4391,14 +4266,10 @@ class StageBatchStopView(APIView):
             # 2. GET CURRENTLY RUNNING STAGE BATCH
             # =========================================================
 
-            stage_batch = (
-                StageBatch.objects
-                .filter(
-                    stage=stage,
-                    status="RUNNING",
-                )
-                .first()
-            )
+            stage_batch = StageBatch.objects.filter(
+                stage=stage,
+                status="RUNNING",
+            ).first()
 
             if not stage_batch:
 
@@ -4406,8 +4277,7 @@ class StageBatchStopView(APIView):
                     {
                         "success": False,
                         "message": (
-                            "No running batch found "
-                            "for this treatment stage."
+                            "No running batch found " "for this treatment stage."
                         ),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
@@ -4426,8 +4296,7 @@ class StageBatchStopView(APIView):
             with transaction.atomic():
 
                 stage_batch = (
-                    StageBatch.objects
-                    .select_for_update()
+                    StageBatch.objects.select_for_update()
                     .select_related(
                         "stage",
                     )
@@ -4445,9 +4314,7 @@ class StageBatchStopView(APIView):
                     return Response(
                         {
                             "success": False,
-                            "message": (
-                                "Stage is no longer running."
-                            ),
+                            "message": ("Stage is no longer running."),
                             "status": stage_batch.status,
                         },
                         status=status.HTTP_400_BAD_REQUEST,
@@ -4469,21 +4336,16 @@ class StageBatchStopView(APIView):
                 # unchanged.
                 # =====================================================
 
-                process_executions = (
-                    StageBatchProcessExecution.objects
-                    .filter(
-                        stage_batch=stage_batch,
-                        status__in=[
-                            "PENDING",
-                            "STARTED",
-                            "RUNNING",
-                        ],
-                    )
+                process_executions = StageBatchProcessExecution.objects.filter(
+                    stage_batch=stage_batch,
+                    status__in=[
+                        "PENDING",
+                        "STARTED",
+                        "RUNNING",
+                    ],
                 )
 
-                process_count = (
-                    process_executions.count()
-                )
+                process_count = process_executions.count()
 
                 stopped_at = timezone.now()
 
@@ -4491,9 +4353,7 @@ class StageBatchStopView(APIView):
 
                     process_execution.status = "STOPPED"
 
-                    process_execution.completed_at = (
-                        stopped_at
-                    )
+                    process_execution.completed_at = stopped_at
 
                     # -------------------------------------------------
                     # Calculate actual process duration only when
@@ -4543,11 +4403,8 @@ class StageBatchStopView(APIView):
                 # =====================================================
 
                 equipment_executions = (
-                    StageBatchProcessEquipmentExecution.objects
-                    .filter(
-                        stage_batch_process_execution__stage_batch=(
-                            stage_batch
-                        ),
+                    StageBatchProcessEquipmentExecution.objects.filter(
+                        stage_batch_process_execution__stage_batch=(stage_batch),
                         status__in=[
                             "PENDING",
                             "STARTED",
@@ -4557,17 +4414,13 @@ class StageBatchStopView(APIView):
                     )
                 )
 
-                equipment_execution_count = (
-                    equipment_executions.count()
-                )
+                equipment_execution_count = equipment_executions.count()
 
                 for equipment_execution in equipment_executions:
 
                     equipment_execution.status = "STOPPED"
 
-                    equipment_execution.completed_at = (
-                        stopped_at
-                    )
+                    equipment_execution.completed_at = stopped_at
 
                     # -------------------------------------------------
                     # DO NOT use:
@@ -4621,14 +4474,10 @@ class StageBatchStopView(APIView):
                 # fields were moved there.
                 # =====================================================
 
-                stage_configs = (
-                    StageEquipmentConfig.objects
-                    .filter(
-                        stage=stage,
-                    )
-                    .select_related(
-                        "equipment",
-                    )
+                stage_configs = StageEquipmentConfig.objects.filter(
+                    stage=stage,
+                ).select_related(
+                    "equipment",
                 )
 
                 turned_off_equipment = []
@@ -4642,9 +4491,7 @@ class StageBatchStopView(APIView):
                     # was actually ON.
                     # -------------------------------------------------
 
-                    was_on = (
-                        config.current_state == "ON"
-                    )
+                    was_on = config.current_state == "ON"
 
                     # -------------------------------------------------
                     # Force runtime state OFF.
@@ -4699,9 +4546,7 @@ class StageBatchStopView(APIView):
             return Response(
                 {
                     "success": True,
-                    "message": (
-                        "Treatment stage stopped successfully."
-                    ),
+                    "message": ("Treatment stage stopped successfully."),
                     "data": {
                         "batch_id": stage_batch.id,
                         "batch_number": stage_batch.batch_number,
@@ -4711,12 +4556,8 @@ class StageBatchStopView(APIView):
                         "started_at": stage_batch.started_at,
                         "completed_at": stage_batch.completed_at,
                         "stopped_processes": process_count,
-                        "stopped_equipment_executions": (
-                            equipment_execution_count
-                        ),
-                        "turned_off_equipment": (
-                            turned_off_equipment
-                        ),
+                        "stopped_equipment_executions": (equipment_execution_count),
+                        "turned_off_equipment": (turned_off_equipment),
                     },
                 },
                 status=status.HTTP_200_OK,
@@ -4727,15 +4568,11 @@ class StageBatchStopView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Failed to stop treatment stage."
-                    ),
+                    "message": ("Failed to stop treatment stage."),
                     "error": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        
 
 
 # from rest_framework.views import APIView
@@ -5189,9 +5026,6 @@ class StageBatchStopView(APIView):
 #             )
 
 
-
-
-
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -5243,12 +5077,9 @@ class StageBatchStatusView(APIView):
 
             try:
 
-                stage = (
-                    TreatmentStage.objects
-                    .get(
-                        id=stage_id,
-                        user=request.user,
-                    )
+                stage = TreatmentStage.objects.get(
+                    id=stage_id,
+                    user=request.user,
                 )
 
             except TreatmentStage.DoesNotExist:
@@ -5266,8 +5097,7 @@ class StageBatchStatusView(APIView):
             # =====================================================
 
             running_batch = (
-                StageBatch.objects
-                .filter(
+                StageBatch.objects.filter(
                     stage=stage,
                     status="RUNNING",
                 )
@@ -5288,8 +5118,7 @@ class StageBatchStatusView(APIView):
             else:
 
                 stage_batch = (
-                    StageBatch.objects
-                    .filter(
+                    StageBatch.objects.filter(
                         stage=stage,
                     )
                     .order_by(
@@ -5307,9 +5136,7 @@ class StageBatchStatusView(APIView):
                 return Response(
                     {
                         "success": True,
-                        "message": (
-                            "No stage batch execution found."
-                        ),
+                        "message": ("No stage batch execution found."),
                         "data": {
                             "stage_id": stage.id,
                             "stage_name": stage.name,
@@ -5331,8 +5158,7 @@ class StageBatchStatusView(APIView):
             # =====================================================
 
             stage_equipments = (
-                stage.equipments
-                .filter(
+                stage.equipments.filter(
                     is_active=True,
                 )
                 .select_related(
@@ -5357,65 +5183,30 @@ class StageBatchStatusView(APIView):
                 # StageEquipmentConfig.
                 # -------------------------------------------------
 
-                config = (
-                    StageEquipmentConfig.objects
-                    .filter(
-                        stage=stage,
-                        equipment=equipment,
-                    )
-                    .first()
-                )
+                config = StageEquipmentConfig.objects.filter(
+                    stage=stage,
+                    equipment=equipment,
+                ).first()
 
                 equipment_data.append(
                     {
                         "id": equipment.id,
-
                         "name": equipment.name,
-
                         "code": equipment.code,
-
-                        "equipment_type": (
-                            equipment.equipment_type.name
-                        ),
-
+                        "equipment_type": (equipment.equipment_type.name),
                         # -------------------------------------------------
                         # Physical equipment availability
                         # -------------------------------------------------
-
                         "is_active": equipment.is_active,
-
                         # -------------------------------------------------
                         # Stage-specific runtime configuration
                         # -------------------------------------------------
-
-                        "status": (
-                            config.status
-                            if config
-                            else None
-                        ),
-
-                        "current_state": (
-                            config.current_state
-                            if config
-                            else None
-                        ),
-
-                        "start_time": (
-                            config.start_time
-                            if config
-                            else None
-                        ),
-
-                        "end_time": (
-                            config.end_time
-                            if config
-                            else None
-                        ),
-
+                        "status": (config.status if config else None),
+                        "current_state": (config.current_state if config else None),
+                        "start_time": (config.start_time if config else None),
+                        "end_time": (config.end_time if config else None),
                         "duration_seconds": (
-                            config.duration_seconds
-                            if config
-                            else None
+                            config.duration_seconds if config else None
                         ),
                     }
                 )
@@ -5425,8 +5216,7 @@ class StageBatchStatusView(APIView):
             # =====================================================
 
             process_executions = (
-                StageBatchProcessExecution.objects
-                .filter(
+                StageBatchProcessExecution.objects.filter(
                     stage_batch=stage_batch,
                 )
                 .select_related(
@@ -5465,54 +5255,29 @@ class StageBatchStatusView(APIView):
 
                 process_equipment_data = []
 
-                equipment_executions = (
-                    process_execution
-                    .equipment_executions
-                    .all()
-                )
+                equipment_executions = process_execution.equipment_executions.all()
 
                 for equipment_execution in equipment_executions:
 
-                    equipment = (
-                        equipment_execution.equipment
-                    )
+                    equipment = equipment_execution.equipment
 
                     process_equipment_data.append(
                         {
                             "id": equipment.id,
-
                             "name": equipment.name,
-
                             "code": equipment.code,
-
-                            "equipment_type": (
-                                equipment
-                                .equipment_type
-                                .name
-                            ),
-
+                            "equipment_type": (equipment.equipment_type.name),
                             # -------------------------------------------------
                             # PROCESS-SPECIFIC STATE
                             #
                             # This is the important new field.
                             # -------------------------------------------------
-
-                            "state": (
-                                equipment_execution.state
-                            ),
-
+                            "state": (equipment_execution.state),
                             # -------------------------------------------------
                             # Process equipment execution timing
                             # -------------------------------------------------
-
-                            "started_at": (
-                                equipment_execution.started_at
-                            ),
-
-                            "completed_at": (
-                                equipment_execution.completed_at
-                            ),
-
+                            "started_at": (equipment_execution.started_at),
+                            "completed_at": (equipment_execution.completed_at),
                             # -------------------------------------------------
                             # STAGE-SPECIFIC EQUIPMENT INFORMATION
                             #
@@ -5522,10 +5287,8 @@ class StageBatchStatusView(APIView):
                             # Runtime/global equipment information now
                             # comes from StageEquipmentConfig.
                             # -------------------------------------------------
-
                             "current_state": (
-                                StageEquipmentConfig.objects
-                                .filter(
+                                StageEquipmentConfig.objects.filter(
                                     stage=stage,
                                     equipment=equipment,
                                 )
@@ -5535,10 +5298,8 @@ class StageBatchStatusView(APIView):
                                 )
                                 .first()
                             ),
-
                             "status": (
-                                StageEquipmentConfig.objects
-                                .filter(
+                                StageEquipmentConfig.objects.filter(
                                     stage=stage,
                                     equipment=equipment,
                                 )
@@ -5548,10 +5309,8 @@ class StageBatchStatusView(APIView):
                                 )
                                 .first()
                             ),
-
                             "duration_seconds": (
-                                StageEquipmentConfig.objects
-                                .filter(
+                                StageEquipmentConfig.objects.filter(
                                     stage=stage,
                                     equipment=equipment,
                                 )
@@ -5570,50 +5329,18 @@ class StageBatchStatusView(APIView):
 
                 processes_data.append(
                     {
-                        "execution_id": (
-                            process_execution.id
-                        ),
-
-                        "process_id": (
-                            process_execution.process_id
-                        ),
-
-                        "process_name": (
-                            process_execution
-                            .process
-                            .name
-                        ),
-
-                        "sequence": (
-                            process_execution
-                            .process
-                            .sequence
-                        ),
-
-                        "status": (
-                            process_execution.status
-                        ),
-
-                        "started_at": (
-                            process_execution.started_at
-                        ),
-
-                        "completed_at": (
-                            process_execution.completed_at
-                        ),
-
+                        "execution_id": (process_execution.id),
+                        "process_id": (process_execution.process_id),
+                        "process_name": (process_execution.process.name),
+                        "sequence": (process_execution.process.sequence),
+                        "status": (process_execution.status),
+                        "started_at": (process_execution.started_at),
+                        "completed_at": (process_execution.completed_at),
                         "actual_duration_seconds": (
-                            process_execution
-                            .actual_duration_seconds
+                            process_execution.actual_duration_seconds
                         ),
-
-                        "remarks": (
-                            process_execution.remarks
-                        ),
-
-                        "equipment": (
-                            process_equipment_data
-                        ),
+                        "remarks": (process_execution.remarks),
+                        "equipment": (process_equipment_data),
                     }
                 )
 
@@ -5624,71 +5351,33 @@ class StageBatchStatusView(APIView):
             return Response(
                 {
                     "success": True,
-
-                    "message": (
-                        "Treatment stage status "
-                        "retrieved successfully."
-                    ),
-
+                    "message": ("Treatment stage status " "retrieved successfully."),
                     "data": {
-
                         # ---------------------------------------------
                         # BATCH INFORMATION
                         # ---------------------------------------------
-
-                        "batch_id": (
-                            stage_batch.id
-                        ),
-
-                        "batch_number": (
-                            stage_batch.batch_number
-                        ),
-
+                        "batch_id": (stage_batch.id),
+                        "batch_number": (stage_batch.batch_number),
                         # ---------------------------------------------
                         # STAGE INFORMATION
                         # ---------------------------------------------
-
                         "stage_id": stage.id,
-
-                        "stage_name": (
-                            stage.name
-                        ),
-
-                        "stage_type": (
-                            stage.stage_type
-                        ),
-
+                        "stage_name": (stage.name),
+                        "stage_type": (stage.stage_type),
                         # ---------------------------------------------
                         # BATCH STATUS
                         # ---------------------------------------------
-
-                        "status": (
-                            stage_batch.status
-                        ),
-
-                        "started_at": (
-                            stage_batch.started_at
-                        ),
-
-                        "completed_at": (
-                            stage_batch.completed_at
-                        ),
-
+                        "status": (stage_batch.status),
+                        "started_at": (stage_batch.started_at),
+                        "completed_at": (stage_batch.completed_at),
                         # ---------------------------------------------
                         # CURRENT/STAGE-SPECIFIC EQUIPMENT
                         # ---------------------------------------------
-
-                        "equipment": (
-                            equipment_data
-                        ),
-
+                        "equipment": (equipment_data),
                         # ---------------------------------------------
                         # PROCESS EXECUTION
                         # ---------------------------------------------
-
-                        "processes": (
-                            processes_data
-                        ),
+                        "processes": (processes_data),
                     },
                 },
                 status=status.HTTP_200_OK,
@@ -5703,10 +5392,7 @@ class StageBatchStatusView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": (
-                        "Failed to retrieve treatment "
-                        "stage status."
-                    ),
+                    "message": ("Failed to retrieve treatment " "stage status."),
                     "error": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
