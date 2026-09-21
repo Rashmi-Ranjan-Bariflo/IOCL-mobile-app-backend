@@ -16,6 +16,7 @@ class TreatmentStage(models.Model):
         ("FLOCCULATION", "Flocculation"),
         ("FILTER_SCREENING", "Filter / Screening"),
         ("AERATION", "Aeration"),
+        ("MIXING", "Mixing")
     ]
 
     name = models.CharField(max_length=100, unique=True)

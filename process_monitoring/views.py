@@ -417,6 +417,7 @@ class ProcessReadingDetailView(APIView):
 #              EQUIPMENT STATUS
 # ==========================================================
 
+
 class EquipmentStatusListCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
