@@ -1325,7 +1325,6 @@ class EquipmentManualLogByEquipmentView(APIView):
 
 
 
-
 class MergeManualDurationView(APIView):
 
     permission_classes = [IsAuthenticated]
