@@ -134,6 +134,8 @@ class Equipment(models.Model):
                 name="equipment_is_active_idx",
             ),
         ]
+    
+    
 
 
 
