@@ -731,6 +731,7 @@ class MotorOnView(APIView):
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
+        print(equipment)
         if not equipment.equipment_type:
             return Response(
                 {"detail": "Equipment type is not configured."},
@@ -756,6 +757,7 @@ class MotorOnView(APIView):
             TreatmentStage,
             id=stage_id,
         )
+        print(stage)
         config, created = StageEquipmentConfig.objects.get_or_create(
             equipment=equipment,
             stage=stage,
@@ -765,6 +767,7 @@ class MotorOnView(APIView):
                 "is_active": True,
             },
         )
+        print(config.equipment)
         if config.current_state == "ON":
             open_log = (
                 EquipmentManualLog.objects.filter(
@@ -880,6 +883,7 @@ class MotorOnView(APIView):
             .exclude(name__icontains="valve")
             .exclude(code__icontains="val")
         )
+        print(sensors)
         activated = []
         for sensor in sensors:
             config, created = StageEquipmentConfig.objects.get_or_create(
@@ -1169,6 +1173,7 @@ class StageSensorListView(APIView):
 
     def get(self, request, stage_id):
         stage = get_object_or_404(TreatmentStage, id=stage_id)
+        print(stage)
 
         configs = StageEquipmentConfig.objects.filter(
             stage=stage,
@@ -1178,6 +1183,7 @@ class StageSensorListView(APIView):
             "equipment",
             "equipment__equipment_type",
         )
+        print(configs)
 
         data = []
 

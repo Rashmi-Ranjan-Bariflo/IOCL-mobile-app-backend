@@ -3037,6 +3037,23 @@ class StageBatchStartView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
+                # NEW VALIDATION
+                if config.current_state == "ON":
+                    
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Equipment '{equipment.name}' "
+                                "is already ON. "
+                                "Please turn it OFF from manual mode "
+                                "before starting automatic mode."
+                            ),
+                            "equipment_id": equipment.id,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
             # =====================================================
             # GET ACTIVE PROCESSES
             # =====================================================
