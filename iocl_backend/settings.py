@@ -89,7 +89,7 @@ DATABASES = {
         "NAME": "iocldb",
         "USER": "bariflo",
         "PASSWORD": "Bariflo@2401",
-        "HOST": "192.168.1.199",
+        "HOST": "122.176.31.88",
         "PORT": "5432",
         "OPTIONS": {
             "sslmode": "require",
