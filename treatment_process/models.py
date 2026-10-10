@@ -21,23 +21,11 @@ class TreatmentStage(models.Model):
     ]
 
     name = models.CharField(max_length=100, unique=True)
-
-    user = models.ForeignKey(
-        "users.User", on_delete=models.CASCADE, related_name="treatment_stages"
-    )
-
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="treatment_stages")
     stage_type = models.CharField(max_length=40, choices=STAGE_CHOICES)
-
     description = models.TextField(blank=True, null=True)
-
-    # Order in which stages will execute
     sequence = models.PositiveIntegerField()
-
-    # Equipment required for this stage
-    equipments = models.ManyToManyField(
-        Equipment, related_name="treatment_stages", blank=True
-    )
-
+    equipments = models.ManyToManyField(Equipment, related_name="treatment_stages", blank=True)
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -70,35 +58,16 @@ class TreatmentStage(models.Model):
 # ==========================================================
 class TreatmentProcess(models.Model):
 
-    stage = models.ForeignKey(
-        TreatmentStage, on_delete=models.PROTECT, related_name="processes"
-    )
-
+    stage = models.ForeignKey(TreatmentStage, on_delete=models.PROTECT, related_name="processes")
     name = models.CharField(max_length=150)
-
     description = models.TextField(blank=True, null=True)
-
-    # Order of process inside a stage
     sequence = models.PositiveIntegerField()
-
-    # Expected duration
-    duration_seconds = models.PositiveIntegerField(
-        default=0, help_text="Expected process duration in seconds"
-    )
-
-    target_volume_liters = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True, null=True
-    )
-    equipments = models.ManyToManyField(
-        Equipment,
-        related_name="treatment_processes",
-        blank=True,
-    )
-
+    duration_seconds = models.PositiveIntegerField(default=0, help_text="Expected process duration in seconds")
+    target_volume_liters = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    equipments = models.ManyToManyField(Equipment,related_name="treatment_processes",blank=True,)
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -137,21 +106,13 @@ class TreatmentBatch(models.Model):
     ]
 
     batch_number = models.CharField(max_length=50, unique=True)
-
     input_volume_liters = models.DecimalField(max_digits=10, decimal_places=2)
-
-    output_volume_liters = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True, null=True
-    )
-
+    output_volume_liters = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
-
     started_at = models.DateTimeField(blank=True, null=True)
-
     completed_at = models.DateTimeField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-
     updated_at = models.DateTimeField(auto_now=True)
 
     def start_batch(self):
@@ -208,26 +169,15 @@ class StageExecutionLog(models.Model):
         ("STOPPED", "Stopped"),
     ]
 
-    batch = models.ForeignKey(
-        TreatmentBatch, on_delete=models.CASCADE, related_name="stage_execution_logs"
-    )
-
-    stage = models.ForeignKey(
-        TreatmentStage, on_delete=models.PROTECT, related_name="execution_logs"
-    )
-
+    batch = models.ForeignKey(TreatmentBatch, on_delete=models.CASCADE, related_name="stage_execution_logs")
+    stage = models.ForeignKey(TreatmentStage, on_delete=models.PROTECT, related_name="execution_logs")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
-
     started_at = models.DateTimeField(blank=True, null=True)
-
     completed_at = models.DateTimeField(blank=True, null=True)
-
     actual_duration_seconds = models.PositiveIntegerField(default=0)
-
     remarks = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -342,16 +292,10 @@ class DosingRecord(models.Model):
         ("FLOCCULANT", "Flocculant Solution"),
     ]
 
-    batch = models.ForeignKey(
-        TreatmentBatch, on_delete=models.CASCADE, related_name="dosing_records"
-    )
-
+    batch = models.ForeignKey(TreatmentBatch, on_delete=models.CASCADE, related_name="dosing_records")
     solution_type = models.CharField(max_length=20, choices=SOLUTION_CHOICES)
-
     quantity_ml = models.DecimalField(max_digits=10, decimal_places=2)
-
     dosing_time = models.DateTimeField(default=timezone.now)
-
     notes = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -378,26 +322,16 @@ class ProcessExecutionLog(models.Model):
         ("STOPPED", "Stopped"),
     ]
 
-    batch = models.ForeignKey(
-        TreatmentBatch, on_delete=models.CASCADE, related_name="process_execution_logs"
-    )
-
-    process = models.ForeignKey(
-        TreatmentProcess, on_delete=models.PROTECT, related_name="execution_logs"
-    )
-
+    batch = models.ForeignKey(TreatmentBatch, on_delete=models.CASCADE, related_name="process_execution_logs")
+    process = models.ForeignKey(TreatmentProcess, on_delete=models.PROTECT, related_name="execution_logs")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
 
     started_at = models.DateTimeField(blank=True, null=True)
-
     completed_at = models.DateTimeField(blank=True, null=True)
-
     actual_duration_seconds = models.PositiveIntegerField(default=0)
-
     remarks = models.TextField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -512,19 +446,13 @@ class StageBatch(models.Model):
     ]
 
     batch_number = models.CharField(max_length=50, unique=True)
-
-    stage = models.ForeignKey(
-        TreatmentStage, on_delete=models.PROTECT, related_name="stage_batches"
-    )
-
+    stage = models.ForeignKey(TreatmentStage, on_delete=models.PROTECT, related_name="stage_batches")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
 
     started_at = models.DateTimeField(blank=True, null=True)
-
     completed_at = models.DateTimeField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -616,50 +544,17 @@ class StageBatchProcessExecution(models.Model):
         ("STOPPED", "Stopped"),
     ]
 
-    stage_batch = models.ForeignKey(
-        StageBatch,
-        on_delete=models.CASCADE,
-        related_name="process_executions",
-    )
+    stage_batch = models.ForeignKey(StageBatch,on_delete=models.CASCADE, related_name="process_executions",)
+    process = models.ForeignKey(TreatmentProcess, on_delete=models.PROTECT, related_name="stage_batch_executions",)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING",)
 
-    process = models.ForeignKey(
-        TreatmentProcess,
-        on_delete=models.PROTECT,
-        related_name="stage_batch_executions",
-    )
+    started_at = models.DateTimeField(blank=True, null=True,)
+    completed_at = models.DateTimeField(blank=True,null=True,)
+    actual_duration_seconds = models.PositiveIntegerField(default=0,)
 
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default="PENDING",
-    )
-
-    started_at = models.DateTimeField(
-        blank=True,
-        null=True,
-    )
-
-    completed_at = models.DateTimeField(
-        blank=True,
-        null=True,
-    )
-
-    actual_duration_seconds = models.PositiveIntegerField(
-        default=0,
-    )
-
-    remarks = models.TextField(
-        blank=True,
-        null=True,
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-    )
-
-    updated_at = models.DateTimeField(
-        auto_now=True,
-    )
+    remarks = models.TextField(blank=True,null=True,)
+    created_at = models.DateTimeField(auto_now_add=True,)
+    updated_at = models.DateTimeField(auto_now=True,)
 
     class Meta:
         db_table = "stage_batch_process_executions"

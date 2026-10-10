@@ -25,7 +25,8 @@ from .views import (
     StageBatchStartView,
     StageBatchStatusView,
     StageBatchStopView,
-    StageProcessLogListView
+    StageProcessLogListView,
+    TreatmentStageWithBatchesAPIView
 )
 
 urlpatterns = [
@@ -149,5 +150,9 @@ urlpatterns = [
         name="stage-process-logs",
     ),
 
+    # =============================================================================================================
+    #                                                   WEB URLS
+    # =============================================================================================================
+    path("stages-with-batches/", TreatmentStageWithBatchesAPIView.as_view(), name="stages-with-batches",),
 
 ]
