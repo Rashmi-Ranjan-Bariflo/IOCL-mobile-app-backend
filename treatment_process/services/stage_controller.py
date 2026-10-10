@@ -3828,10 +3828,7 @@ class StageExecutionService:
     # EXECUTE PROCESS
     # =========================================================
 
-    def execute_process(
-        self,
-        process_execution,
-    ):
+    def execute_process(self,process_execution):
         """
         Execute one TreatmentProcess.
 
@@ -4123,11 +4120,7 @@ class StageExecutionService:
     # EXECUTE EQUIPMENT
     # =========================================================
 
-    def execute_equipment(
-        self,
-        process_execution,
-        equipment,
-    ):
+    def execute_equipment(self,process_execution,equipment):
         """
         Execute one equipment operation.
 
