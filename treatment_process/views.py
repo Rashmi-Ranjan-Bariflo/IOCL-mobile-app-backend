@@ -25,6 +25,7 @@ from .serializers import (
     StageExecutionLogSerializer,
     DosingRecordSerializer,
     ProcessExecutionLogSerializer,
+    TreatmentStageWithBatchesSerializer,
 )
 
 from equipment.models import Equipment
@@ -3039,7 +3040,7 @@ class StageBatchStartView(APIView):
 
                 # NEW VALIDATION
                 if config.current_state == "ON":
-                    
+
                     return Response(
                         {
                             "success": False,
@@ -5414,3 +5415,71 @@ class StageBatchStatusView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+# ====================================================================================================
+#                                           WEB VIEWS
+# ====================================================================================================
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .pagination import TreatmentStagePagination
+from .models import TreatmentStage
+from .serializers import TreatmentStageWithBatchesSerializer
+
+
+class TreatmentStageWithBatchesAPIView(APIView):
+
+    def get(self, request):
+        stages = TreatmentStage.objects.prefetch_related(
+            "stage_batches__process_executions__process",
+            "stage_batches__process_executions__process__equipments__sensors",
+            "stage_batches__process_executions__process__equipments__equipment_type",
+        ).order_by("sequence")
+
+        stage_id = request.query_params.get("stage_id")
+
+        if stage_id:
+            stages = stages.filter(id=stage_id)
+
+            if not stages.exists():
+                return Response(
+                    {
+                        "success": False,
+                        "message": "Treatment stage not found.",
+                        "data": None,
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        paginator = TreatmentStagePagination()
+
+        paginated_stages = paginator.paginate_queryset(
+            stages,
+            request,
+            view=self,
+        )
+
+        serializer = TreatmentStageWithBatchesSerializer(
+            paginated_stages,
+            many=True,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Treatment stages and batches fetched successfully.",
+                "pagination": {
+                    "count": paginator.page.paginator.count,
+                    "current_page": paginator.page.number,
+                    "total_pages": paginator.page.paginator.num_pages,
+                    "page_size": paginator.get_page_size(request),
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                },
+                "data": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )

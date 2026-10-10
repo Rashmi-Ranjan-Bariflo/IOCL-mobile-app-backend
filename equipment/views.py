@@ -1330,7 +1330,6 @@ class EquipmentManualLogByEquipmentView(APIView):
         )
 
 
-
 class MergeManualDurationView(APIView):
 
     permission_classes = [IsAuthenticated]
@@ -1360,7 +1359,7 @@ class MergeManualDurationView(APIView):
                     duration_seconds__isnull=False,
                     ended_at__isnull=False,
                 )
-                .order_by("-id")  
+                .order_by("-id")
                 .first()
             )
 

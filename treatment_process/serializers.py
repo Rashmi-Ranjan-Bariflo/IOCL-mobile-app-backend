@@ -1,6 +1,11 @@
 from rest_framework import serializers
 
+from equipment.models import Equipment
+from sensors.models import Sensor
+
 from .models import (
+    StageBatch,
+    StageBatchProcessExecution,
     TreatmentStage,
     TreatmentProcess,
     TreatmentBatch,
@@ -266,4 +271,118 @@ class ProcessExecutionLogSerializer(serializers.ModelSerializer):
             "actual_duration_seconds",
             "created_at",
             "updated_at",
+        ]
+
+
+# ======================================================================================================================
+#                                               WEB API SERIALIZERS
+# ======================================================================================================================
+
+
+class ProcessSensorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Sensor
+        fields = [
+            "id",
+            "name",
+            "code",
+            "unit",
+            "status",
+            "is_active",
+        ]
+
+
+class ProcessEquipmentSerializer(serializers.ModelSerializer):
+    sensors = ProcessSensorSerializer(many=True, read_only=True)
+    equipment_type_name = serializers.CharField(
+        source="equipment_type.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Equipment
+        fields = [
+            "id",
+            "name",
+            "code",
+            "equipment_type",
+            "equipment_type_name",
+            "is_active",
+            "sensors",
+        ]
+
+
+class StageBatchProcessExecutionSerializer(serializers.ModelSerializer):
+    process = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StageBatchProcessExecution
+        fields = [
+            "id",
+            "process",
+            "status",
+            "started_at",
+            "completed_at",
+            "actual_duration_seconds",
+            "remarks",
+        ]
+
+    def get_process(self, obj):
+        process = obj.process
+
+        equipments = ProcessEquipmentSerializer(
+            process.equipments.all(),
+            many=True,
+            read_only=True,
+        ).data
+
+        return {
+            "id": process.id,
+            "name": process.name,
+            "sequence": process.sequence,
+            "equipments": equipments,
+        }
+
+
+class StageBatchSerializer(serializers.ModelSerializer):
+    process_executions = StageBatchProcessExecutionSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = StageBatch
+        fields = [
+            "id",
+            "batch_number",
+            "status",
+            "started_at",
+            "completed_at",
+            "process_executions",
+        ]
+
+
+class TreatmentStageWithBatchesSerializer(serializers.ModelSerializer):
+    batches_count = serializers.SerializerMethodField()
+
+    batches = StageBatchSerializer(
+        source="stage_batches",
+        many=True,
+        read_only=True,
+    )
+
+    def get_batches_count(self, obj):
+        return len(obj.stage_batches.all())
+
+    class Meta:
+        model = TreatmentStage
+        fields = [
+            "id",
+            "name",
+            "stage_type",
+            "description",
+            "sequence",
+            "is_active",
+            "batches",
+            "batches_count",
         ]
