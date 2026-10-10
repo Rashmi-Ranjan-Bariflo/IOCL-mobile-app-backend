@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
 
     "rest_framework",
     # 'rest_framework_simplejwt.token_blacklist',
@@ -37,11 +38,13 @@ INSTALLED_APPS = [
     'process_monitoring',
     'alerts',
     'treatment_process',
+    'mqtt'
 ]
 
 AUTH_USER_MODEL = "users.User"
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -64,6 +67,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
+            
         },
     },
 ] 
@@ -168,3 +172,14 @@ EMAIL_HOST_USER = "rashmiranjan6372@gmail.com"
 EMAIL_HOST_PASSWORD = "lscazuhoyiqywqmz"
 
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+
+
+MQTT_BROKER = "mqttbroker.bc-pl.com"
+MQTT_PORT = 1883
+MQTT_USER = "mqttuser"
+MQTT_PASSWORD = "Bfl@2025"
+
+
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True

@@ -2161,3 +2161,336 @@ class BlowerOffView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+
+
+
+
+
+class AssetCategoryCardsAPIView(APIView):
+    """
+    Returns category summaries and equipment counts.
+
+    An equipment item may be linked to multiple treatment stages.
+    Each equipment record is counted only once.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        categories = {}
+
+        # Initialize categories from the existing database records.
+        for equipment_type in EquipmentType.objects.filter(
+            is_active=True
+        ).order_by("name"):
+            categories[equipment_type.id] = {
+                "id": equipment_type.id,
+                "name": equipment_type.name,
+                "total_assets": 0,
+                "running_count": 0,
+                "stopped_count": 0,
+                "unclassified_count": 0,
+                "equipment_groups": {},
+            }
+
+        # Fetch each equipment record once and prefetch its stage
+        # configurations to avoid a database query per equipment.
+        equipment_records = (
+            Equipment.objects
+            .filter(
+                user=request.user,
+                equipment_type__is_active=True,
+            )
+            .select_related("equipment_type")
+            .prefetch_related("stage_configurations")
+            .order_by("name", "id")
+        )
+
+
+        for equipment in equipment_records:
+            category_id = equipment.equipment_type_id
+
+            # Ignore equipment belonging to an inactive category.
+            if category_id not in categories:
+                continue
+
+            category = categories[category_id]
+            category["total_assets"] += 1
+
+            # An equipment item can have multiple stage configurations.
+            # Collect distinct states, but count the equipment only once.
+            states = {
+                config.current_state
+                for config in equipment.stage_configurations.all()
+            }
+
+            if "ON" in states:
+                display_status = "RUNNING"
+                category["running_count"] += 1
+            elif states and states == {"OFF"}:
+                display_status = "STOPPED"
+                category["stopped_count"] += 1
+            else:
+                display_status = "UNCLASSIFIED"
+                category["unclassified_count"] += 1
+
+            # Group repeated equipment names within each category,
+            # as shown in the supplied dashboard design.
+            groups = category["equipment_groups"]
+            group = groups.get(equipment.name)
+
+            if group is None:
+                group = {
+                    "name": equipment.name,
+                    "total_count": 0,
+                    "running_count": 0,
+                    "stopped_count": 0,
+                    "unclassified_count": 0,
+                    "equipment_ids": [],
+                }
+                groups[equipment.name] = group
+
+            group["total_count"] += 1
+            group["equipment_ids"].append(equipment.id)
+
+            if display_status == "RUNNING":
+                group["running_count"] += 1
+            elif display_status == "STOPPED":
+                group["stopped_count"] += 1
+            else:
+                group["unclassified_count"] += 1
+
+        # Convert internal dictionaries into JSON-serializable lists.
+        result = []
+
+        for category in categories.values():
+            category["equipment"] = list(
+                category.pop("equipment_groups").values()
+            )
+            result.append(category)
+
+        return Response({"categories": result})
+
+
+
+
+
+
+
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.db import models
+from .models import Equipment
+
+
+class AssetDetailsListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Only return equipment owned by the logged-in user.
+        queryset = (
+            Equipment.objects
+            .filter(user=request.user)
+            .select_related("equipment_type")
+            .prefetch_related("stage_configurations")
+            .order_by("name", "id")
+        )
+
+        # Optional search by equipment name or code.
+        search = request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(
+                models.Q(name__icontains=search)
+                | models.Q(code__icontains=search)
+            )
+
+        # Optional category filter: equipment_type ID.
+        category_id = request.query_params.get("category")
+        if category_id:
+            if not category_id.isdigit():
+                return Response(
+                    {"error": "category must be a valid category ID."},
+                    status=400,
+                )
+            queryset = queryset.filter(
+                equipment_type_id=int(category_id),
+                equipment_type__is_active=True,
+            )
+
+        # Only include equipment belonging to active categories.
+        queryset = queryset.filter(equipment_type__is_active=True)
+
+        requested_status = request.query_params.get(
+            "status", ""
+        ).strip().upper()
+
+        valid_statuses = {"RUNNING", "STOPPED", "UNCLASSIFIED"}
+        if requested_status and requested_status not in valid_statuses:
+            return Response(
+                {
+                    "error": (
+                        "Invalid status. Use RUNNING, STOPPED, "
+                        "or UNCLASSIFIED."
+                    )
+                },
+                status=400,
+            )
+
+        # Build one row per equipment record.
+        
+        rows = []
+
+        for equipment in queryset:
+            states = {
+                config.current_state
+                for config in equipment.stage_configurations.all()
+            }
+
+            if "ON" in states:
+                display_status = "RUNNING"
+            elif states and states == {"OFF"}:
+                display_status = "STOPPED"
+            else:
+                display_status = "UNCLASSIFIED"
+
+            if requested_status and display_status != requested_status:
+                continue
+
+            stages = (
+                equipment.treatment_stages
+                .filter(is_active=True)
+                .order_by("sequence")
+                .values("id", "name", "stage_type", "sequence")
+            )
+
+            rows.append({
+                "id": equipment.id,
+                "name": equipment.name,
+                "type": equipment.equipment_type.name,
+                "stages": list(stages),
+                "status": display_status,
+            })
+
+        # Pagination.
+        try:
+            page_number = int(request.query_params.get("page", "1"))
+            page_size = int(request.query_params.get("page_size", "10"))
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "page and page_size must be integers."},
+                status=400,
+            )
+
+        if page_number < 1 or page_size < 1 or page_size > 100:
+            return Response(
+                {"error": "page must be >= 1; page_size must be 1-100."},
+                status=400,
+            )
+
+        paginator = Paginator(rows, page_size)
+
+        try:
+            page_obj = paginator.page(page_number)
+        except EmptyPage:
+            return Response(
+                {"error": "Requested page does not exist."},
+                status=404,
+            )
+
+        results = []
+        start_index = page_obj.start_index()
+
+        for index, row in enumerate(page_obj.object_list, start=start_index):
+            results.append({
+                "s_no": index,
+                **row,
+            })
+
+        return Response({
+            "count": paginator.count,
+            "page": page_number,
+            "page_size": page_size,
+            "total_pages": paginator.num_pages,
+            "results": results,
+        })
+
+
+
+
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Equipment
+
+
+class AssetOverviewAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        equipment_records = (
+            Equipment.objects
+            .filter(
+                user=request.user,
+                equipment_type__is_active=True,
+            )
+            .prefetch_related("stage_configurations")
+            .order_by("id")
+        )
+
+        total_assets = 0
+        running_count = 0
+        stopped_count = 0
+        maintenance_count = 0
+        fault_count = 0
+        unclassified_count = 0
+
+        for equipment in equipment_records:
+            total_assets += 1
+
+            configurations = list(
+                equipment.stage_configurations.all()
+            )
+
+            # No stage configuration means status is unknown.
+            if not configurations:
+                unclassified_count += 1
+                continue
+
+            config_statuses = {
+                config.status for config in configurations
+            }
+            current_states = {
+                config.current_state for config in configurations
+            }
+
+            # Use a deterministic priority when stage configurations
+            # disagree about the equipment's condition.
+            if "FAULT" in config_statuses:
+                fault_count += 1
+
+            elif "MAINTENANCE" in config_statuses:
+                maintenance_count += 1
+
+            elif "ON" in current_states:
+                running_count += 1
+
+            elif current_states == {"OFF"}:
+                stopped_count += 1
+
+            else:
+                unclassified_count += 1
+
+        return Response({
+            "total_assets": total_assets,
+            "running": running_count,
+            "stopped": stopped_count,
+            "maintenance": maintenance_count,
+            "fault": fault_count,
+            "unclassified": unclassified_count,
+        })

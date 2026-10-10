@@ -15,6 +15,7 @@ from .views import (
     ValveOffView,
     MotorOnView,
     MotorOffView,
+    AssetCategoryCardsAPIView,AssetDetailsListAPIView, AssetOverviewAPIView
 )
 
 urlpatterns = [
@@ -46,5 +47,11 @@ urlpatterns = [
 
     path("blower/<int:equipment_id>/on/", BlowerOnView.as_view(),),
     path("blower/<int:equipment_id>/off/", BlowerOffView.as_view(),),
+
+
+    # ===================== Web ===========================
+    path("assets/category-cards/",AssetCategoryCardsAPIView.as_view(),name="asset-category-cards"),
+    path("assets/detail/",AssetDetailsListAPIView.as_view(),name="asset-details-list"),
+    path("assets/overview/",AssetOverviewAPIView.as_view(),name="asset-overview"),
 ]
 
