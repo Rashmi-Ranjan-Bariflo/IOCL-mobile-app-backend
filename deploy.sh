@@ -28,13 +28,13 @@ echo ">> Build new image"
 docker build -t $IMAGE:latest .
 
 echo ">> Run migrations (one-off container)"
-docker run --rm --network bridge --env-file .env $IMAGE:latest \
+docker run --rm --network iocl-network --env-file .env $IMAGE:latest \
   python manage.py migrate --noinput
 
 start_web() {
   docker rm -f $WEB 2>/dev/null || true
   docker run -d --name $WEB --restart unless-stopped \
-    --network bridge -p 127.0.0.1:8000:8000 \
+    --network iocl-network -p 127.0.0.1:8000:8000 \
     --env-file .env "$1" \
     python -m gunicorn --bind 0.0.0.0:8000 --workers 4 --threads 2 \
       --worker-class gthread --worker-tmp-dir /dev/shm --timeout 120 \
