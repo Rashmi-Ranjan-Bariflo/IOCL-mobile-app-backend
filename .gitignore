@@ -42,3 +42,8 @@ node_modules/
 
 
 
+ssl/
+media/
+staticfiles/
+*.sqlite3
+__pycache__/
