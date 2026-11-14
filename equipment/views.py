@@ -1,17 +1,17 @@
+from asyncio.log import logger
+
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 
-from .models import (
-    EquipmentType,
-    Equipment, EquipmentManualLog
-)
+from .models import EquipmentType, Equipment, EquipmentManualLog
 
 from .serializers import (
     EquipmentTypeSerializer,
     EquipmentSerializer,
-    EquipmentOnOffSerializer, EquipmentOnOffSerializer
+    EquipmentOnOffSerializer,
+    EquipmentOnOffSerializer,
 )
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -452,10 +452,9 @@ class EquipmentDetailView(APIView):
         )
 
 
-# =================================================================================================
-
-
-
+# ===================================================
+#                 VALVE ON VIEW
+# ===================================================
 class ValveOnView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -534,7 +533,6 @@ class ValveOnView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-
         # ---------------------------------
         # MQTT COMMAND THROUGH REDIS
         # ---------------------------------
@@ -564,7 +562,6 @@ class ValveOnView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        
         now = timezone.now()
         with transaction.atomic():
             log = EquipmentManualLog.objects.create(
@@ -611,6 +608,11 @@ class ValveOnView(APIView):
         )
 
 
+# =================================================================
+#                   VALVE OFF VIEW
+# =================================================================
+
+
 class ValveOffView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -619,41 +621,55 @@ class ValveOffView(APIView):
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
+
         if not equipment.equipment_type:
             return Response(
                 {"detail": "Equipment type is not configured."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if "valve" not in equipment.equipment_type.name.lower():
             return Response(
                 {
-                    "detail": f"This equipment is not a Valve. Current type: {equipment.equipment_type.name}"
+                    "detail": (
+                        f"This equipment is not a Valve. "
+                        f"Current type: {equipment.equipment_type.name}"
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         stage_id = request.data.get("stage_id")
+
         if not stage_id:
             return Response(
                 {"detail": "stage_id is required for Valve OFF."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         stage = get_object_or_404(
             TreatmentStage,
             id=stage_id,
         )
+
         config = StageEquipmentConfig.objects.filter(
             equipment=equipment,
             stage=stage,
             is_active=True,
         ).first()
+
         if not config:
             return Response(
                 {
                     "success": False,
-                    "detail": "StageEquipmentConfig does not exist for this valve and stage.",
+                    "detail": (
+                        "StageEquipmentConfig does not exist "
+                        "for this valve and stage."
+                    ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if config.current_state == "OFF":
             return Response(
                 {
@@ -669,6 +685,49 @@ class ValveOffView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ---------------------------------
+        # CHECK MOTOR / PUMP STATE
+        # ---------------------------------
+
+        active_motor = (
+            StageEquipmentConfig.objects.filter(
+                stage=stage,
+                equipment__equipment_type__name__iregex=r"motor|pump",
+                is_active=True,
+                current_state="ON",
+            )
+            .select_related(
+                "equipment",
+                "equipment__equipment_type",
+            )
+            .first()
+        )
+
+        if active_motor:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Cannot turn Valve OFF. Turn OFF the Motor/Pump first.",
+                    "data": {
+                        "motor_config_id": active_motor.id,
+                        "motor_equipment_id": active_motor.equipment.id,
+                        "motor_name": active_motor.equipment.name,
+                        "motor_code": active_motor.equipment.code,
+                        "motor_current_state": active_motor.current_state,
+                        "stage": {
+                            "id": stage.id,
+                            "name": stage.name,
+                        },
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------
+        # GET ACTIVE VALVE ON LOG
+        # ---------------------------------
+
         open_log = (
             EquipmentManualLog.objects.filter(
                 equipment=equipment,
@@ -679,6 +738,7 @@ class ValveOffView(APIView):
             .order_by("-started_at", "-id")
             .first()
         )
+
         if not open_log:
             return Response(
                 {
@@ -687,11 +747,51 @@ class ValveOffView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ---------------------------------
+        # MQTT VALVE OFF COMMAND THROUGH REDIS
+        # ---------------------------------
+
+        try:
+            subscriber_count = publish_mqtt_command(
+                topic=topics.VALVE_CONTROL,
+                payload="OFF",
+                qos=1,
+            )
+
+            if subscriber_count == 0:
+                return Response(
+                    {
+                        "success": False,
+                        "detail": (
+                            "MQTT worker is not available " "to receive commands."
+                        ),
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+        except Exception:
+            logger.exception("Failed to send Valve OFF command through Redis.")
+
+            return Response(
+                {
+                    "success": False,
+                    "detail": ("Unable to send Valve OFF command through Redis."),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # ---------------------------------
+        # UPDATE VALVE LOG AND CONFIG
+        # ---------------------------------
+
         now = timezone.now()
+
         duration = max(
             0,
             int((now - open_log.started_at).total_seconds()),
         )
+
         with transaction.atomic():
             open_log.ended_at = now
             open_log.duration_seconds = duration
@@ -701,6 +801,7 @@ class ValveOffView(APIView):
                     "duration_seconds",
                 ]
             )
+
             off_log = EquipmentManualLog.objects.create(
                 equipment=equipment,
                 stage=stage,
@@ -710,6 +811,7 @@ class ValveOffView(APIView):
                 duration_seconds=duration,
                 performed_by=request.user,
             )
+
             config.current_state = "OFF"
             config.save(
                 update_fields=[
@@ -717,10 +819,11 @@ class ValveOffView(APIView):
                     "updated_at",
                 ]
             )
+
         return Response(
             {
                 "success": True,
-                "message": "Valve turned OFF successfully.",
+                "message": "Valve OFF command sent successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": off_log.id,
@@ -748,6 +851,9 @@ class ValveOffView(APIView):
         )
 
 
+# ==========================================================
+#                   MOTOR ON VIEW
+# ==========================================================
 class MotorOnView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -756,33 +862,42 @@ class MotorOnView(APIView):
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
-        print(equipment)
+
         if not equipment.equipment_type:
             return Response(
                 {"detail": "Equipment type is not configured."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         equipment_type = equipment.equipment_type.name.lower()
+
         if "motor" not in equipment_type and "pump" not in equipment_type:
             return Response(
                 {
-                    "detail": f"This equipment is not a Motor/Pump. Current type: {equipment.equipment_type.name}"
+                    "detail": (
+                        f"This equipment is not a Motor/Pump. "
+                        f"Current type: {equipment.equipment_type.name}"
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         serializer = EquipmentOnOffSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
         stage_id = serializer.validated_data.get("stage_id")
+
         if not stage_id:
             return Response(
                 {"detail": "stage_id is required for Motor ON."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         stage = get_object_or_404(
             TreatmentStage,
             id=stage_id,
         )
-        print(stage)
+
         config, created = StageEquipmentConfig.objects.get_or_create(
             equipment=equipment,
             stage=stage,
@@ -792,7 +907,7 @@ class MotorOnView(APIView):
                 "is_active": True,
             },
         )
-        print(config.equipment)
+
         if config.current_state == "ON":
             open_log = (
                 EquipmentManualLog.objects.filter(
@@ -804,6 +919,7 @@ class MotorOnView(APIView):
                 .order_by("-started_at", "-id")
                 .first()
             )
+
             return Response(
                 {
                     "success": False,
@@ -825,6 +941,11 @@ class MotorOnView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ---------------------------------
+        # CHECK ACTIVE VALVE
+        # ---------------------------------
+
         valve_configs = StageEquipmentConfig.objects.filter(
             stage=stage,
             equipment__equipment_type__name__icontains="valve",
@@ -833,12 +954,16 @@ class MotorOnView(APIView):
             "equipment",
             "equipment__equipment_type",
         )
+
         active_valve = valve_configs.filter(current_state="ON").first()
+
         if not active_valve:
             return Response(
                 {
                     "success": False,
-                    "detail": "Cannot turn Motor ON. Valve of this stage is not ON.",
+                    "detail": (
+                        "Cannot turn Motor ON. " "Valve of this stage is not ON."
+                    ),
                     "stage": {
                         "id": stage.id,
                         "name": stage.name,
@@ -846,7 +971,46 @@ class MotorOnView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ---------------------------------
+        # MQTT PUMP ON COMMAND THROUGH REDIS
+        # ---------------------------------
+
+        try:
+            subscriber_count = publish_mqtt_command(
+                topic=topics.MQTT_PUMP_SET_TOPIC,
+                payload="ON",
+                qos=1,
+            )
+
+            if subscriber_count == 0:
+                return Response(
+                    {
+                        "success": False,
+                        "detail": (
+                            "MQTT worker is not available " "to receive commands."
+                        ),
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+        except Exception:
+            logger.exception("Failed to send Pump ON command through Redis.")
+
+            return Response(
+                {
+                    "success": False,
+                    "detail": ("Unable to send Pump ON command through Redis."),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # ---------------------------------
+        # UPDATE MOTOR LOG AND CONFIG
+        # ---------------------------------
+
         now = timezone.now()
+
         with transaction.atomic():
             log = EquipmentManualLog.objects.create(
                 equipment=equipment,
@@ -855,6 +1019,7 @@ class MotorOnView(APIView):
                 started_at=now,
                 performed_by=request.user,
             )
+
             config.current_state = "ON"
             config.save(
                 update_fields=[
@@ -862,14 +1027,11 @@ class MotorOnView(APIView):
                     "updated_at",
                 ]
             )
-            sensors = self._activate_sensors(
-                stage,
-                request.user,
-            )
+
         return Response(
             {
                 "success": True,
-                "message": "Motor turned ON successfully.",
+                "message": "Motor ON command sent successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": log.id,
@@ -896,71 +1058,15 @@ class MotorOnView(APIView):
                         "name": active_valve.equipment.name,
                         "current_state": active_valve.current_state,
                     },
-                    "sensors": sensors,
                 },
             },
             status=status.HTTP_201_CREATED,
         )
 
-    def _activate_sensors(self, stage, user):
-        sensors = (
-            stage.equipments.filter(equipment_type__name__icontains="sensor")
-            .exclude(name__icontains="valve")
-            .exclude(code__icontains="val")
-        )
-        print(sensors)
-        activated = []
-        for sensor in sensors:
-            config, created = StageEquipmentConfig.objects.get_or_create(
-                equipment=sensor,
-                stage=stage,
-                defaults={
-                    "current_state": "OFF",
-                    "status": "ACTIVE",
-                    "is_active": True,
-                },
-            )
-            if config.current_state == "ON":
-                continue
-            now = timezone.now()
-            log = EquipmentManualLog.objects.create(
-                equipment=sensor,
-                stage=stage,
-                action="ON",
-                started_at=now,
-                performed_by=user,
-            )
-            config.current_state = "ON"
-            config.save(
-                update_fields=[
-                    "current_state",
-                    "updated_at",
-                ]
-            )
-            activated.append(
-                {
-                    "config_id": config.id,
-                    "log_id": log.id,
-                    "equipment_id": sensor.id,
-                    "name": sensor.name,
-                    "code": sensor.code,
-                    "equipment_type": (
-                        sensor.equipment_type.name if sensor.equipment_type else None
-                    ),
-                    "action": "ON",
-                    "current_state": config.current_state,
-                    "status": config.status,
-                    "started_at": log.started_at,
-                    "ended_at": log.ended_at,
-                    "duration_seconds": log.duration_seconds,
-                    "stage": {
-                        "id": stage.id,
-                        "name": stage.name,
-                    },
-                    "performed_by": user.id,
-                }
-            )
-        return activated
+
+# =========================================================
+#                  MOTOR OFF VIEW
+# =========================================================
 
 
 class MotorOffView(APIView):
@@ -971,42 +1077,57 @@ class MotorOffView(APIView):
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
+        
         if not equipment.equipment_type:
             return Response(
                 {"detail": "Equipment type is not configured."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         equipment_type = equipment.equipment_type.name.lower()
+
         if "motor" not in equipment_type and "pump" not in equipment_type:
             return Response(
                 {
-                    "detail": f"This equipment is not a Motor/Pump. Current type: {equipment.equipment_type.name}"
+                    "detail": (
+                        f"This equipment is not a Motor/Pump. "
+                        f"Current type: {equipment.equipment_type.name}"
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         stage_id = request.data.get("stage_id")
+
         if not stage_id:
             return Response(
                 {"detail": "stage_id is required for Motor OFF."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         stage = get_object_or_404(
             TreatmentStage,
             id=stage_id,
         )
+
         config = StageEquipmentConfig.objects.filter(
             equipment=equipment,
             stage=stage,
             is_active=True,
         ).first()
+
         if not config:
             return Response(
                 {
                     "success": False,
-                    "detail": "StageEquipmentConfig does not exist for this motor and stage.",
+                    "detail": (
+                        "StageEquipmentConfig does not exist "
+                        "for this motor and stage."
+                    ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         if config.current_state == "OFF":
             return Response(
                 {
@@ -1022,6 +1143,7 @@ class MotorOffView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         open_log = (
             EquipmentManualLog.objects.filter(
                 equipment=equipment,
@@ -1032,6 +1154,7 @@ class MotorOffView(APIView):
             .order_by("-started_at", "-id")
             .first()
         )
+
         if not open_log:
             return Response(
                 {
@@ -1040,11 +1163,51 @@ class MotorOffView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # ---------------------------------
+        # MQTT PUMP OFF COMMAND THROUGH REDIS
+        # ---------------------------------
+
+        try:
+            subscriber_count = publish_mqtt_command(
+                topic=topics.MQTT_PUMP_SET_TOPIC,
+                payload="OFF",
+                qos=1,
+            )
+
+            if subscriber_count == 0:
+                return Response(
+                    {
+                        "success": False,
+                        "detail": (
+                            "MQTT worker is not available " "to receive commands."
+                        ),
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+        except Exception:
+            logger.exception("Failed to send Pump OFF command through Redis.")
+
+            return Response(
+                {
+                    "success": False,
+                    "detail": ("Unable to send Pump OFF command through Redis."),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # ---------------------------------
+        # UPDATE MOTOR LOG AND CONFIG
+        # ---------------------------------
+
         now = timezone.now()
+
         duration = max(
             0,
             int((now - open_log.started_at).total_seconds()),
         )
+
         with transaction.atomic():
             open_log.ended_at = now
             open_log.duration_seconds = duration
@@ -1054,6 +1217,7 @@ class MotorOffView(APIView):
                     "duration_seconds",
                 ]
             )
+
             off_log = EquipmentManualLog.objects.create(
                 equipment=equipment,
                 stage=stage,
@@ -1063,6 +1227,7 @@ class MotorOffView(APIView):
                 duration_seconds=duration,
                 performed_by=request.user,
             )
+
             config.current_state = "OFF"
             config.save(
                 update_fields=[
@@ -1070,14 +1235,11 @@ class MotorOffView(APIView):
                     "updated_at",
                 ]
             )
-            sensors = self._deactivate_sensors(
-                stage,
-                request.user,
-            )
+
         return Response(
             {
                 "success": True,
-                "message": "Motor turned OFF successfully.",
+                "message": "Motor OFF command sent successfully.",
                 "data": {
                     "config_id": config.id,
                     "log_id": off_log.id,
@@ -1099,95 +1261,10 @@ class MotorOffView(APIView):
                         "name": stage.name,
                     },
                     "performed_by": request.user.id,
-                    "sensors": sensors,
                 },
             },
             status=status.HTTP_200_OK,
         )
-
-    def _deactivate_sensors(self, stage, performed_by):
-        sensors = (
-            stage.equipments.filter(equipment_type__name__icontains="sensor")
-            .exclude(name__icontains="valve")
-            .exclude(code__icontains="val")
-        )
-        deactivated = []
-        for sensor in sensors:
-            config = StageEquipmentConfig.objects.filter(
-                equipment=sensor,
-                stage=stage,
-                is_active=True,
-            ).first()
-            if not config:
-                continue
-            if config.current_state == "OFF":
-                continue
-            open_log = (
-                EquipmentManualLog.objects.filter(
-                    equipment=sensor,
-                    stage=stage,
-                    action="ON",
-                    ended_at__isnull=True,
-                )
-                .order_by("-started_at", "-id")
-                .first()
-            )
-            if not open_log:
-                continue
-            now = timezone.now()
-            duration = max(
-                0,
-                int((now - open_log.started_at).total_seconds()),
-            )
-            open_log.ended_at = now
-            open_log.duration_seconds = duration
-            open_log.save(
-                update_fields=[
-                    "ended_at",
-                    "duration_seconds",
-                ]
-            )
-            off_log = EquipmentManualLog.objects.create(
-                equipment=sensor,
-                stage=stage,
-                action="OFF",
-                started_at=now,
-                ended_at=now,
-                duration_seconds=duration,
-                performed_by=performed_by,
-            )
-            config.current_state = "OFF"
-            config.save(
-                update_fields=[
-                    "current_state",
-                    "updated_at",
-                ]
-            )
-            deactivated.append(
-                {
-                    "config_id": config.id,
-                    "log_id": off_log.id,
-                    "previous_on_log_id": open_log.id,
-                    "equipment_id": sensor.id,
-                    "name": sensor.name,
-                    "code": sensor.code,
-                    "equipment_type": (
-                        sensor.equipment_type.name if sensor.equipment_type else None
-                    ),
-                    "action": "OFF",
-                    "current_state": config.current_state,
-                    "status": config.status,
-                    "started_at": open_log.started_at,
-                    "ended_at": off_log.ended_at,
-                    "duration_seconds": duration,
-                    "stage": {
-                        "id": stage.id,
-                        "name": stage.name,
-                    },
-                    "performed_by": performed_by.id,
-                }
-            )
-        return deactivated
 
 
 # =========================================================
@@ -2187,11 +2264,6 @@ class BlowerOffView(APIView):
         )
 
 
-
-
-
-
-
 class AssetCategoryCardsAPIView(APIView):
     """
     Returns category summaries and equipment counts.
@@ -2199,15 +2271,16 @@ class AssetCategoryCardsAPIView(APIView):
     An equipment item may be linked to multiple treatment stages.
     Each equipment record is counted only once.
     """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         categories = {}
 
         # Initialize categories from the existing database records.
-        for equipment_type in EquipmentType.objects.filter(
-            is_active=True
-        ).order_by("name"):
+        for equipment_type in EquipmentType.objects.filter(is_active=True).order_by(
+            "name"
+        ):
             categories[equipment_type.id] = {
                 "id": equipment_type.id,
                 "name": equipment_type.name,
@@ -2221,8 +2294,7 @@ class AssetCategoryCardsAPIView(APIView):
         # Fetch each equipment record once and prefetch its stage
         # configurations to avoid a database query per equipment.
         equipment_records = (
-            Equipment.objects
-            .filter(
+            Equipment.objects.filter(
                 user=request.user,
                 equipment_type__is_active=True,
             )
@@ -2230,7 +2302,6 @@ class AssetCategoryCardsAPIView(APIView):
             .prefetch_related("stage_configurations")
             .order_by("name", "id")
         )
-
 
         for equipment in equipment_records:
             category_id = equipment.equipment_type_id
@@ -2245,8 +2316,7 @@ class AssetCategoryCardsAPIView(APIView):
             # An equipment item can have multiple stage configurations.
             # Collect distinct states, but count the equipment only once.
             states = {
-                config.current_state
-                for config in equipment.stage_configurations.all()
+                config.current_state for config in equipment.stage_configurations.all()
             }
 
             if "ON" in states:
@@ -2289,17 +2359,10 @@ class AssetCategoryCardsAPIView(APIView):
         result = []
 
         for category in categories.values():
-            category["equipment"] = list(
-                category.pop("equipment_groups").values()
-            )
+            category["equipment"] = list(category.pop("equipment_groups").values())
             result.append(category)
 
         return Response({"categories": result})
-
-
-
-
-
 
 
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -2317,8 +2380,7 @@ class AssetDetailsListAPIView(APIView):
     def get(self, request, *args, **kwargs):
         # Only return equipment owned by the logged-in user.
         queryset = (
-            Equipment.objects
-            .filter(user=request.user)
+            Equipment.objects.filter(user=request.user)
             .select_related("equipment_type")
             .prefetch_related("stage_configurations")
             .order_by("name", "id")
@@ -2328,8 +2390,7 @@ class AssetDetailsListAPIView(APIView):
         search = request.query_params.get("search", "").strip()
         if search:
             queryset = queryset.filter(
-                models.Q(name__icontains=search)
-                | models.Q(code__icontains=search)
+                models.Q(name__icontains=search) | models.Q(code__icontains=search)
             )
 
         # Optional category filter: equipment_type ID.
@@ -2348,30 +2409,26 @@ class AssetDetailsListAPIView(APIView):
         # Only include equipment belonging to active categories.
         queryset = queryset.filter(equipment_type__is_active=True)
 
-        requested_status = request.query_params.get(
-            "status", ""
-        ).strip().upper()
+        requested_status = request.query_params.get("status", "").strip().upper()
 
         valid_statuses = {"RUNNING", "STOPPED", "UNCLASSIFIED"}
         if requested_status and requested_status not in valid_statuses:
             return Response(
                 {
                     "error": (
-                        "Invalid status. Use RUNNING, STOPPED, "
-                        "or UNCLASSIFIED."
+                        "Invalid status. Use RUNNING, STOPPED, " "or UNCLASSIFIED."
                     )
                 },
                 status=400,
             )
 
         # Build one row per equipment record.
-        
+
         rows = []
 
         for equipment in queryset:
             states = {
-                config.current_state
-                for config in equipment.stage_configurations.all()
+                config.current_state for config in equipment.stage_configurations.all()
             }
 
             if "ON" in states:
@@ -2385,19 +2442,20 @@ class AssetDetailsListAPIView(APIView):
                 continue
 
             stages = (
-                equipment.treatment_stages
-                .filter(is_active=True)
+                equipment.treatment_stages.filter(is_active=True)
                 .order_by("sequence")
                 .values("id", "name", "stage_type", "sequence")
             )
 
-            rows.append({
-                "id": equipment.id,
-                "name": equipment.name,
-                "type": equipment.equipment_type.name,
-                "stages": list(stages),
-                "status": display_status,
-            })
+            rows.append(
+                {
+                    "id": equipment.id,
+                    "name": equipment.name,
+                    "type": equipment.equipment_type.name,
+                    "stages": list(stages),
+                    "status": display_status,
+                }
+            )
 
         # Pagination.
         try:
@@ -2429,21 +2487,22 @@ class AssetDetailsListAPIView(APIView):
         start_index = page_obj.start_index()
 
         for index, row in enumerate(page_obj.object_list, start=start_index):
-            results.append({
-                "s_no": index,
-                **row,
-            })
+            results.append(
+                {
+                    "s_no": index,
+                    **row,
+                }
+            )
 
-        return Response({
-            "count": paginator.count,
-            "page": page_number,
-            "page_size": page_size,
-            "total_pages": paginator.num_pages,
-            "results": results,
-        })
-
-
-
+        return Response(
+            {
+                "count": paginator.count,
+                "page": page_number,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "results": results,
+            }
+        )
 
 
 from rest_framework.permissions import IsAuthenticated
@@ -2458,8 +2517,7 @@ class AssetOverviewAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         equipment_records = (
-            Equipment.objects
-            .filter(
+            Equipment.objects.filter(
                 user=request.user,
                 equipment_type__is_active=True,
             )
@@ -2477,21 +2535,15 @@ class AssetOverviewAPIView(APIView):
         for equipment in equipment_records:
             total_assets += 1
 
-            configurations = list(
-                equipment.stage_configurations.all()
-            )
+            configurations = list(equipment.stage_configurations.all())
 
             # No stage configuration means status is unknown.
             if not configurations:
                 unclassified_count += 1
                 continue
 
-            config_statuses = {
-                config.status for config in configurations
-            }
-            current_states = {
-                config.current_state for config in configurations
-            }
+            config_statuses = {config.status for config in configurations}
+            current_states = {config.current_state for config in configurations}
 
             # Use a deterministic priority when stage configurations
             # disagree about the equipment's condition.
@@ -2510,11 +2562,13 @@ class AssetOverviewAPIView(APIView):
             else:
                 unclassified_count += 1
 
-        return Response({
-            "total_assets": total_assets,
-            "running": running_count,
-            "stopped": stopped_count,
-            "maintenance": maintenance_count,
-            "fault": fault_count,
-            "unclassified": unclassified_count,
-        })
+        return Response(
+            {
+                "total_assets": total_assets,
+                "running": running_count,
+                "stopped": stopped_count,
+                "maintenance": maintenance_count,
+                "fault": fault_count,
+                "unclassified": unclassified_count,
+            }
+        )

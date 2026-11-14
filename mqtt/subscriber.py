@@ -20,11 +20,7 @@ class MQTTSubscriber:
 
     @staticmethod
     def decode_message(message):
-        """
-        Decode the incoming MQTT payload as UTF-8 text.
 
-        This does not assume JSON.
-        """
         return message.payload.decode(
             "utf-8",
             errors="replace",
