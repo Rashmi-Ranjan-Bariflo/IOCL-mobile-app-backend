@@ -93,6 +93,14 @@ class Command(BaseCommand):
 
             shutdown_event.wait()
 
+        except KeyboardInterrupt:            
+            
+            self.stdout.write(
+                self.style.WARNING(
+                    "Stopping MQTT service..."
+                )
+            )
+
         except Exception:
             logger.exception(
                 "MQTT worker stopped due to an unexpected error."

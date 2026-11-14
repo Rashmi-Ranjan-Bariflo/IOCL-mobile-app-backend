@@ -378,3 +378,4 @@ class MQTTClient:
     @property
     def is_loop_running(self):
         return self._loop_started
+

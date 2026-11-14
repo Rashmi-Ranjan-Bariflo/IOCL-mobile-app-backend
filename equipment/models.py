@@ -135,10 +135,6 @@ class Equipment(models.Model):
             ),
         ]
     
-    
-
-
-
 
 class EquipmentTest(models.Model):
     STATUS_CHOICES = [
