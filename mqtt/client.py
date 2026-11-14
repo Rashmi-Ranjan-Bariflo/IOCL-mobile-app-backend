@@ -193,6 +193,7 @@ logger = logging.getLogger(__name__)
 class MQTTClient:
     def __init__(self):
         self.client = mqtt.Client(
+            client_id=settings.MQTT_CLIENT_ID,
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2
         )
 

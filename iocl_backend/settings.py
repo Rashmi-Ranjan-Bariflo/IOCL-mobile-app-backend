@@ -294,3 +294,32 @@ if not DEBUG:
 # ============================================================
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# ============================================================
+# Redis Configuration
+# ============================================================
+
+REDIS_HOST = config("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = config("REDIS_PORT", default=6379, cast=int)
+REDIS_DB = config("REDIS_DB", default=0, cast=int)
+REDIS_PASSWORD = config("REDIS_PASSWORD", default="")
+
+REDIS_URL = (
+    f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    if REDIS_PASSWORD
+    else f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+)
+
+
+
+# MQTT CONFIGURATION
+
+MQTT_BROKER = config("MQTT_BROKER")
+MQTT_PORT = config("MQTT_PORT", default=1883, cast=int)
+MQTT_USER = config("MQTT_USER")
+MQTT_PASSWORD = config("MQTT_PASSWORD")
+MQTT_CLIENT_ID = config(
+    "MQTT_CLIENT_ID",
+    default="AQUAPOD_DJANGO_01",
+)

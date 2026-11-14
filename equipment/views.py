@@ -22,6 +22,8 @@ from treatment_process.models import (
     StageEquipmentConfig,
 )
 from rest_framework.permissions import IsAuthenticated
+from mqtt.redis_bus import publish_mqtt_command
+from mqtt import topics
 
 
 # ==========================================================
@@ -531,6 +533,38 @@ class ValveOnView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+        # ---------------------------------
+        # MQTT COMMAND THROUGH REDIS
+        # ---------------------------------
+
+        try:
+            subscriber_count = publish_mqtt_command(
+                topic=topics.VALVE_CONTROL,
+                payload="ON",
+                qos=1,
+            )
+
+            if subscriber_count == 0:
+                return Response(
+                    {
+                        "success": False,
+                        "detail": "MQTT worker is not available to receive commands.",
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+        except Exception:
+            return Response(
+                {
+                    "success": False,
+                    "detail": "Unable to send Valve ON command through Redis.",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        
         now = timezone.now()
         with transaction.atomic():
             log = EquipmentManualLog.objects.create(
