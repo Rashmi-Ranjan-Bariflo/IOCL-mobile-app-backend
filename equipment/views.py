@@ -1,21 +1,27 @@
-from urllib.request import Request
-
 from rest_framework import status
-from rest_framework import response
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 
 from .models import (
-    EquipmentTest,
     EquipmentType,
-    Equipment,
+    Equipment, EquipmentManualLog
 )
 
 from .serializers import (
     EquipmentTypeSerializer,
     EquipmentSerializer,
+    EquipmentOnOffSerializer, EquipmentOnOffSerializer
 )
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from treatment_process.models import (
+    TreatmentStage,
+    TreatmentProcess,
+    StageEquipmentConfig,
+)
+from rest_framework.permissions import IsAuthenticated
 
 
 # ==========================================================
@@ -446,21 +452,6 @@ class EquipmentDetailView(APIView):
 
 # =================================================================================================
 
-from django.db import transaction
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-
-from .models import Equipment, EquipmentManualLog, EquipmentTest
-from .serializers import EquipmentOnOffSerializer, EquipmentSerializer
-from treatment_process.models import (
-    TreatmentStage,
-    TreatmentProcess,
-    StageEquipmentConfig,
-)
 
 
 class ValveOnView(APIView):

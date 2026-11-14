@@ -167,7 +167,7 @@ class EquipmentSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "duration_seconds",
-            "status",
+            # "status",
             "is_active",
             "created_at",
             "updated_at",
