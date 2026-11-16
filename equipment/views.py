@@ -536,12 +536,22 @@ class ValveOnView(APIView):
 
 
         # ---------------------------------
+        # GENERATE DYNAMIC MQTT TOPIC
+        # ---------------------------------
+
+        topic = topics.VALVE_CONTROL.format(
+            equipment.code
+        )
+
+
+        # ---------------------------------
         # MQTT COMMAND THROUGH REDIS
         # ---------------------------------
 
         try:
+
             subscriber_count = publish_mqtt_command(
-                topic=topics.VALVE_CONTROL,
+                topic=topic,
                 payload="ON",
                 qos=1,
             )
@@ -565,29 +575,57 @@ class ValveOnView(APIView):
             )
 
         
-        now = timezone.now()
-        with transaction.atomic():
-            log = EquipmentManualLog.objects.create(
-                equipment=equipment,
-                stage=stage,
-                action="ON",
-                started_at=now,
-                performed_by=request.user,
-            )
-            config.current_state = "ON"
-            config.save(
-                update_fields=[
-                    "current_state",
-                    "updated_at",
-                ]
-            )
+        # now = timezone.now()
+        # with transaction.atomic():
+        #     log = EquipmentManualLog.objects.create(
+        #         equipment=equipment,
+        #         stage=stage,
+        #         action="ON",
+        #         started_at=now,
+        #         performed_by=request.user,
+        #     )
+        #     config.current_state = "ON"
+        #     config.save(
+        #         update_fields=[
+        #             "current_state",
+        #             "updated_at",
+        #         ]
+        #     )
+        # return Response(
+        #     {
+        #         "success": True,
+        #         "message": "Valve turned ON successfully.",
+        #         "data": {
+        #             "config_id": config.id,
+        #             "log_id": log.id,
+        #             "equipment": {
+        #                 "id": equipment.id,
+        #                 "name": equipment.name,
+        #                 "code": equipment.code,
+        #                 "equipment_type": equipment.equipment_type.name,
+        #             },
+        #             "action": "ON",
+        #             "current_state": config.current_state,
+        #             "status": config.status,
+        #             "started_at": log.started_at,
+        #             "ended_at": log.ended_at,
+        #             "duration_seconds": log.duration_seconds,
+        #             "stage": {
+        #                 "id": stage.id,
+        #                 "name": stage.name,
+        #             },
+        #             "performed_by": request.user.id,
+        #         },
+        #     },
+        #     status=status.HTTP_201_CREATED,
+        # )
+
         return Response(
             {
                 "success": True,
-                "message": "Valve turned ON successfully.",
+                "message": "Valve ON command sent successfully.",
                 "data": {
                     "config_id": config.id,
-                    "log_id": log.id,
                     "equipment": {
                         "id": equipment.id,
                         "name": equipment.name,
@@ -597,18 +635,20 @@ class ValveOnView(APIView):
                     "action": "ON",
                     "current_state": config.current_state,
                     "status": config.status,
-                    "started_at": log.started_at,
-                    "ended_at": log.ended_at,
-                    "duration_seconds": log.duration_seconds,
                     "stage": {
                         "id": stage.id,
                         "name": stage.name,
                     },
-                    "performed_by": request.user.id,
+                    "message": (
+                        "Waiting for device status confirmation."
+                    ),
                 },
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )
+
+
+
 
 
 class ValveOffView(APIView):

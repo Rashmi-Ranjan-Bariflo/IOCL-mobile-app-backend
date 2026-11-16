@@ -3,6 +3,7 @@ import logging
 from .client import MQTTClient
 from .publisher import MQTTPublisher
 from .subscriber import MQTTSubscriber
+import topics
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,14 @@ class MQTTService:
             return
 
         self.client.connect()
+        self.subscriber.set_message_handler(
+        self.handle_device_message
+        )
+
+        self.subscriber.subscribe(
+            topics.DEVICE_STATUS,
+            qos=1,
+        )
         self._started = True
 
         logger.info("MQTT service started successfully.")
@@ -35,6 +44,18 @@ class MQTTService:
         self._started = False
 
         logger.info("MQTT service stopped successfully.")
+
+    def handle_device_message(self, message):
+        device_id = message.topic.split("/")[2]
+
+        payload = self.subscriber.decode_message(message)
+
+        logger.info(
+            "Device status received | Device: %s | Topic: %s | Payload: %s",
+            device_id,
+            message.topic,
+            payload,
+        )
 
     @property
     def is_running(self):
