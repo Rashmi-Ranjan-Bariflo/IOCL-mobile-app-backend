@@ -1,200 +1,18 @@
-# # mqtt/client.py
-
-# import logging
-
-# import paho.mqtt.client as mqtt
-# from django.conf import settings
-
-
-# logger = logging.getLogger(__name__)
-
-
-# class MQTTClient:
-#     def __init__(self):
-#         self.client = mqtt.Client(
-#             callback_api_version=mqtt.CallbackAPIVersion.VERSION2
-#         )
-
-#         self.client.username_pw_set(
-#             username=settings.MQTT_USER,
-#             password=settings.MQTT_PASSWORD,
-#         )
-
-#         self.client.on_connect = self._on_connect
-#         self.client.on_disconnect = self._on_disconnect
-
-#         self._connected = False
-
-#     def connect(self):
-#         self.client.connect_async(
-#             host=settings.MQTT_BROKER,
-#             port=settings.MQTT_PORT,
-#             keepalive=60,
-#         )
-
-#         self.client.loop_start()
-
-#     def disconnect(self):
-#         self.client.loop_stop()
-#         self.client.disconnect()
-
-#     def _on_connect(self, client, userdata, flags, reason_code, properties):
-#         if reason_code == 0:
-#             self._connected = True
-#             logger.info("MQTT connected successfully.")
-#         else:
-#             self._connected = False
-#             logger.error(
-#                 "MQTT connection failed. Reason code: %s",
-#                 reason_code,
-#             )
-
-#     def _on_disconnect(
-#         self,
-#         client,
-#         userdata,
-#         disconnect_flags,
-#         reason_code,
-#         properties,
-#     ):
-#         self._connected = False
-
-#         logger.warning(
-#             "MQTT disconnected. Reason code: %s",
-#             reason_code,
-#         )
-
-#     @property
-#     def is_connected(self):
-#         return self._connected
-
-
-
-
-
-
-# import logging
-
-# import paho.mqtt.client as mqtt
-# from django.conf import settings
-
-
-# logger = logging.getLogger(__name__)
-
-
-# class MQTTClient:
-#     def __init__(self):
-#         self.client = mqtt.Client(
-#             callback_api_version=mqtt.CallbackAPIVersion.VERSION2
-#         )
-
-#         self.client.username_pw_set(
-#             username=settings.MQTT_USER,
-#             password=settings.MQTT_PASSWORD,
-#         )
-
-#         self.client.on_connect = self._on_connect
-#         self.client.on_disconnect = self._on_disconnect
-
-#         self.client.reconnect_delay_set(
-#             min_delay=1,
-#             max_delay=30,
-#         )
-
-#         self._connected = False
-#         self._loop_started = False
-
-#     def connect(self):
-#         if self._loop_started:
-#             logger.warning("MQTT network loop is already running.")
-#             return
-
-#         self.client.connect_async(
-#             host=settings.MQTT_BROKER,
-#             port=settings.MQTT_PORT,
-#             keepalive=60,
-#         )
-
-#         self.client.loop_start()
-#         self._loop_started = True
-
-#         logger.info("MQTT network loop started.")
-
-#     def disconnect(self):
-#         if not self._loop_started:
-#             return
-
-#         try:
-#             self.client.disconnect()
-#         finally:
-#             self.client.loop_stop()
-#             self._loop_started = False
-#             self._connected = False
-
-#         logger.info("MQTT client stopped.")
-
-#     def _on_connect(
-#         self,
-#         client,
-#         userdata,
-#         flags,
-#         reason_code,
-#         properties,
-#     ):
-#         if reason_code == 0:
-#             self._connected = True
-#             logger.info("MQTT connected successfully.")
-#         else:
-#             self._connected = False
-#             logger.error(
-#                 "MQTT connection rejected. Reason code: %s",
-#                 reason_code,
-#             )
-
-#     def _on_disconnect(
-#         self,
-#         client,
-#         userdata,
-#         disconnect_flags,
-#         reason_code,
-#         properties,
-#     ):
-#         self._connected = False
-
-#         logger.warning(
-#             "MQTT disconnected. Reason code: %s",
-#             reason_code,
-#         )
-
-#     @property
-#     def is_connected(self):
-#         return self.client.is_connected()
-
-#     @property
-#     def is_loop_running(self):
-#         return self._loop_started
-
-
-
-
-
-
-
 import logging
 import threading
 
 import paho.mqtt.client as mqtt
 from django.conf import settings
 
-
 logger = logging.getLogger(__name__)
 
 
 class MQTTClient:
+
     def __init__(self):
         self.client = mqtt.Client(
             client_id=settings.MQTT_CLIENT_ID,
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         )
 
         self.client.username_pw_set(
@@ -205,6 +23,7 @@ class MQTTClient:
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
+        self.client.on_subscribe = self._on_subscribe
 
         self.client.reconnect_delay_set(
             min_delay=1,
@@ -219,19 +38,38 @@ class MQTTClient:
     def connect(self):
         with self._lock:
             if self._loop_started:
-                logger.warning("MQTT network loop is already running.")
+                print("MQTT LOOP ALREADY RUNNING", flush=True)
                 return
 
-            self.client.connect_async(
-                host=settings.MQTT_BROKER,
-                port=settings.MQTT_PORT,
-                keepalive=60,
+            print(
+                f"MQTT CONNECTING: {settings.MQTT_BROKER}:" f"{settings.MQTT_PORT}",
+                flush=True,
             )
 
-            self.client.loop_start()
-            self._loop_started = True
+            try:
+                self.client.connect(
+                    host=settings.MQTT_BROKER,
+                    port=settings.MQTT_PORT,
+                    keepalive=60,
+                )
 
-        logger.info("MQTT network loop started.")
+                print(
+                    "MQTT BROKER CONNECTION ESTABLISHED. " "Starting network loop...",
+                    flush=True,
+                )
+
+                self.client.loop_start()
+                self._loop_started = True
+
+                print("MQTT NETWORK LOOP STARTED", flush=True)
+
+            except Exception as exc:
+                print(
+                    f"MQTT CONNECTION ERROR: {exc!r}",
+                    flush=True,
+                )
+                logger.exception("MQTT connection failed.")
+                raise
 
     def disconnect(self):
         with self._lock:
@@ -239,18 +77,17 @@ class MQTTClient:
                 return
 
             try:
+                print("MQTT DISCONNECTING...", flush=True)
                 self.client.disconnect()
             finally:
                 self.client.loop_stop()
                 self._loop_started = False
 
-        logger.info("MQTT client stopped.")
+        print("MQTT CLIENT STOPPED", flush=True)
 
     def publish(self, topic, payload, qos=1, retain=False):
         if not isinstance(payload, (str, bytes, bytearray)):
-            raise TypeError(
-                "MQTT payload must be str, bytes, or bytearray."
-            )
+            raise TypeError("MQTT payload must be str, bytes, or bytearray.")
 
         if not self.client.is_connected():
             raise ConnectionError("MQTT broker is not connected.")
@@ -263,11 +100,12 @@ class MQTTClient:
         )
 
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            raise RuntimeError(
-                f"MQTT publish failed. Return code: {result.rc}"
-            )
+            raise RuntimeError(f"MQTT publish failed. Return code: {result.rc}")
 
-        logger.info("MQTT message queued for topic: %s", topic)
+        print(
+            f"MQTT PUBLISH QUEUED | Topic: {topic} | Payload: {payload}",
+            flush=True,
+        )
 
         return result
 
@@ -282,9 +120,9 @@ class MQTTClient:
             self._subscriptions[topic] = qos
 
             if not self.client.is_connected():
-                logger.info(
-                    "Subscription saved. It will be applied after connection: %s",
-                    topic,
+                print(
+                    f"MQTT SUBSCRIPTION SAVED: {topic}",
+                    flush=True,
                 )
                 return None
 
@@ -292,11 +130,13 @@ class MQTTClient:
 
         if result != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError(
-                f"MQTT subscription failed for {topic}. "
-                f"Return code: {result}"
+                f"MQTT subscription failed for {topic}. " f"Return code: {result}"
             )
 
-        logger.info("MQTT subscription requested: %s", topic)
+        print(
+            f"MQTT SUBSCRIBE REQUESTED | Topic: {topic} | MID: {mid}",
+            flush=True,
+        )
 
         return mid
 
@@ -305,6 +145,7 @@ class MQTTClient:
             raise TypeError("Message callback must be callable.")
 
         self._message_callback = callback
+        print("MQTT MESSAGE CALLBACK REGISTERED", flush=True)
 
     def _on_connect(
         self,
@@ -314,27 +155,54 @@ class MQTTClient:
         reason_code,
         properties,
     ):
+        print(
+            f"MQTT ON_CONNECT CALLBACK | Reason: {reason_code}",
+            flush=True,
+        )
+
         if reason_code != 0:
-            logger.error(
-                "MQTT connection rejected. Reason code: %s",
-                reason_code,
+            print(
+                f"MQTT CONNECTION REJECTED: {reason_code}",
+                flush=True,
             )
             return
 
-        logger.info("MQTT connected successfully.")
+        print("MQTT CONNECTED SUCCESSFULLY", flush=True)
 
-        # Restore subscriptions whenever the client reconnects.
         with self._lock:
             subscriptions = list(self._subscriptions.items())
+
+        if not subscriptions:
+            print("NO MQTT SUBSCRIPTIONS REGISTERED", flush=True)
+            return
 
         for topic, qos in subscriptions:
             result, mid = client.subscribe(topic, qos)
 
             if result != mqtt.MQTT_ERR_SUCCESS:
-                logger.error(
-                    "Failed to restore subscription for topic: %s",
-                    topic,
+                print(
+                    f"MQTT SUBSCRIBE FAILED: {topic}",
+                    flush=True,
                 )
+            else:
+                print(
+                    f"MQTT SUBSCRIBE REQUESTED | " f"Topic: {topic} | MID: {mid}",
+                    flush=True,
+                )
+
+    def _on_subscribe(
+        self,
+        client,
+        userdata,
+        mid,
+        reason_code_list,
+        properties,
+    ):
+        print(
+            f"MQTT SUBSCRIPTION ACKNOWLEDGED | "
+            f"MID: {mid} | Reasons: {reason_code_list}",
+            flush=True,
+        )
 
     def _on_disconnect(
         self,
@@ -344,33 +212,33 @@ class MQTTClient:
         reason_code,
         properties,
     ):
-        logger.warning(
-            "MQTT disconnected. Reason code: %s",
-            reason_code,
+        print(
+            f"MQTT DISCONNECTED | Reason: {reason_code} | "
+            f"Flags: {disconnect_flags}",
+            flush=True,
         )
 
     def _on_message(self, client, userdata, message):
-        logger.info(
-            "MQTT message received on topic: %s",
-            message.topic,
+        payload = message.payload.decode(
+            "utf-8",
+            errors="replace",
+        )
+
+        print(
+            f"MQTT MESSAGE RECEIVED | " f"Topic: {message.topic} | Payload: {payload}",
+            flush=True,
         )
 
         callback = self._message_callback
 
         if callback is None:
-            logger.warning(
-                "No message handler registered for topic: %s",
-                message.topic,
-            )
+            print("MQTT MESSAGE HANDLER NOT REGISTERED", flush=True)
             return
 
         try:
             callback(message)
         except Exception:
-            logger.exception(
-                "Error while handling MQTT message from topic: %s",
-                message.topic,
-            )
+            logger.exception("MQTT message handler failed.")
 
     @property
     def is_connected(self):
@@ -379,4 +247,3 @@ class MQTTClient:
     @property
     def is_loop_running(self):
         return self._loop_started
-
