@@ -1,4 +1,3 @@
-
 VALVE_CONTROL = "aquapod/test/Valve_Device001/valve/set"
 
 MQTT_VALVE_SET_TOPIC = "aquapod/test/Valve_Device001/valve/set"
