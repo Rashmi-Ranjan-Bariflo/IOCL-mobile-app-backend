@@ -1900,6 +1900,7 @@ class TreatmentStageEquipmentListView(APIView):
                     {
                         "id": equipment.id,
                         "name": equipment.name,
+                        "code": equipment.code,
                     }
                 )
 
