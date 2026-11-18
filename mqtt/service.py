@@ -1,4 +1,3 @@
-
 import logging
 import json
 
@@ -13,7 +12,6 @@ from .topics import (
     DEVICE_STATUS,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -26,9 +24,7 @@ class MQTTService:
         self.publisher = MQTTPublisher(self.client)
         self.subscriber = MQTTSubscriber(self.client)
 
-        self.subscriber.set_message_handler(
-            self._handle_message
-        )
+        self.subscriber.set_message_handler(self._handle_message)
 
     def start(self):
 
@@ -162,7 +158,7 @@ class MQTTService:
                 device_code,
                 state,
             )
-            
+
         except (json.JSONDecodeError, UnicodeDecodeError):
             logger.exception(
                 "Unable to decode device status for %s",
