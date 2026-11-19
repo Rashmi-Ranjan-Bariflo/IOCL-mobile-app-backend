@@ -10,7 +10,9 @@ from .models import (
     StageBatch,
     StageBatchProcessExecution,
     StageBatchProcessEquipmentExecution,
-    StageEquipmentConfig
+    StageEquipmentConfig,
+    StageBatchEquipmentExecution,
+    StageBatchEventLog
 )
 
 
@@ -25,6 +27,8 @@ class TreatmentStageAdmin(admin.ModelAdmin):
         "name",
         "stage_type",
         "sequence",
+        "controller_id",
+        "controller_status",
         "is_active",
         "created_at",
         "updated_at",
@@ -286,7 +290,7 @@ class ProcessExecutionLogAdmin(admin.ModelAdmin):
 
 @admin.register(StageBatch)
 class StageBatchAdmin(admin.ModelAdmin):
-    list_display = ("id","stage","batch_number","status")
+    list_display = ("id","stage","batch_number","status","started_at","completed_at")
 
 
 
@@ -334,3 +338,15 @@ class StageEquipmentConfigAdmin(admin.ModelAdmin):
         return "-"
 
     get_equipment_name.short_description="Equipment"
+
+
+
+
+@admin.register(StageBatchEventLog)
+class StageBatchEventLogAdmin(admin.ModelAdmin):
+    list_display = ("stage_batch","stage","equipment","controller_id","event","state","device_time","device_date")
+
+
+@admin.register(StageBatchEquipmentExecution)
+class StageBatchEquipmentExecutionAdmin(admin.ModelAdmin):
+    list_display = ("stage_batch","equipment","operation_name","start_event","end_event","status","started_at","completed_at","duration_seconds")
