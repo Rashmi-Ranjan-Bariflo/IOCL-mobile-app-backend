@@ -20,6 +20,11 @@ class TreatmentStage(models.Model):
         ("DESLUDGING", "Desludging")
     ]
 
+    CONTROLLER_STATUS_CHOICES = [
+        ("ONLINE", "Online"),
+        ("OFFLINE", "Offline"),
+    ]
+
     name = models.CharField(max_length=100, unique=True)
     user = models.ForeignKey("users.User", on_delete=models.CASCADE, related_name="treatment_stages")
     stage_type = models.CharField(max_length=40, choices=STAGE_CHOICES)
@@ -27,6 +32,18 @@ class TreatmentStage(models.Model):
     sequence = models.PositiveIntegerField()
     equipments = models.ManyToManyField(Equipment, related_name="treatment_stages", blank=True)
     is_active = models.BooleanField(default=True)
+    controller_id = models.CharField(
+        max_length=100,
+        unique=True,
+        null=True,
+        blank=True,
+    )
+
+    controller_status = models.CharField(
+        max_length=10,
+        choices=CONTROLLER_STATUS_CHOICES,
+        default="OFFLINE",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -438,6 +455,7 @@ class ProcessExecutionLog(models.Model):
 class StageBatch(models.Model):
 
     STATUS_CHOICES = [
+        ("SENT", "Sent"),
         ("PENDING", "Pending"),
         ("RUNNING", "Running"),
         ("COMPLETED", "Completed"),
@@ -668,147 +686,206 @@ class StageBatchProcessExecution(models.Model):
         return f"{self.stage_batch.batch_number} - " f"{self.process.name}"
 
 
-# class StageBatchProcessEquipmentExecution(models.Model):
-#     """
-#     Stores the equipment-level execution result for a process.
 
-#     This is different from Equipment.current_state.
 
-#     Equipment.current_state:
-#         -> Current/global state of the physical equipment.
+class StageBatchEventLog(models.Model):
 
-#     This model:
-#         -> Stores the state produced by a particular process execution.
+    MESSAGE_TYPE_CHOICES = [
+        ("ACK", "Acknowledgement"),
+        ("STATUS", "Status"),
+        ("HEARTBEAT", "Heartbeat"),
+        ("POWER", "Power"),
+    ]
 
-#     Example:
+    stage_batch = models.ForeignKey(
+        StageBatch,
+        on_delete=models.SET_NULL,
+        related_name="event_logs",
+        null=True,
+        blank=True,
+    )
 
-#         Process: Pump motor start
-#         Equipment: PM1
-#         State: ON
+    stage = models.ForeignKey(
+        TreatmentStage,
+        on_delete=models.SET_NULL,
+        related_name="stage_batch_event_logs",
+        null=True,
+        blank=True,
+    )
 
-#         Process: Pump motor stop
-#         Equipment: PM1
-#         State: OFF
-#     """
+    equipment = models.ForeignKey(
+        "equipment.Equipment",
+        on_delete=models.SET_NULL,
+        related_name="stage_batch_event_logs",
+        null=True,
+        blank=True,
+    )
 
-#     STATE_CHOICES = [
-#         ("ON", "On"),
-#         ("OFF", "Off"),
-#     ]
+    controller_id = models.CharField(max_length=100)
 
-#     stage_batch_process_execution = models.ForeignKey(
-#         StageBatchProcessExecution,
-#         on_delete=models.CASCADE,
-#         related_name="equipment_executions",
-#     )
+    device_id = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+    )
 
-#     equipment = models.ForeignKey(
-#         "equipment.Equipment",
-#         on_delete=models.PROTECT,
-#         related_name="stage_batch_process_equipment_executions",
-#     )
+    topic = models.CharField(max_length=255)
 
-#     state = models.CharField(
-#         max_length=10,
-#         choices=STATE_CHOICES,
-#         blank=True,
-#         null=True,
-#     )
+    message_type = models.CharField(
+        max_length=15,
+        choices=MESSAGE_TYPE_CHOICES,
+    )
 
-#     started_at = models.DateTimeField(
-#         blank=True,
-#         null=True,
-#     )
+    event = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+    )
 
-#     completed_at = models.DateTimeField(
-#         blank=True,
-#         null=True,
-#     )
+    state = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+    )
 
-#     created_at = models.DateTimeField(
-#         auto_now_add=True,
-#     )
+    reason = models.TextField(
+        blank=True,
+        null=True,
+    )
 
-#     updated_at = models.DateTimeField(
-#         auto_now=True,
-#     )
+    device_date = models.CharField(
+        max_length=30,
+        blank=True,
+        null=True,
+    )
 
-#     class Meta:
-#         db_table = "stage_batch_process_equipment_executions"
+    device_time = models.CharField(
+        max_length=30,
+        blank=True,
+        null=True,
+    )
 
-#         ordering = [
-#             "stage_batch_process_execution__process__sequence",
-#             "equipment__name",
-#         ]
+    raw_payload = models.TextField()
 
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=[
-#                     "stage_batch_process_execution",
-#                     "equipment",
-#                 ],
-#                 name="unique_process_equipment_execution",
-#             )
-#         ]
+    parsed_payload = models.JSONField(
+        blank=True,
+        null=True,
+    )
 
-#         indexes = [
-#             models.Index(
-#                 fields=[
-#                     "stage_batch_process_execution",
-#                     "equipment",
-#                 ],
-#                 name="stage_process_equipment_idx",
-#             ),
+    received_at = models.DateTimeField(auto_now_add=True)
 
-#             models.Index(
-#                 fields=["equipment"],
-#                 name="stage_equipment_idx",
-#             ),
+    class Meta:
+        db_table = "stage_batch_event_logs"
+        ordering = ["received_at"]
 
-#             models.Index(
-#                 fields=["state"],
-#                 name="stage_process_state_idx",
-#             ),
-#         ]
+        indexes = [
+            models.Index(
+                fields=["stage_batch", "received_at"],
+                name="batch_event_time_idx",
+            ),
+            models.Index(
+                fields=["equipment", "received_at"],
+                name="equip_event_time_idx",
+            ),
+            models.Index(
+                fields=["controller_id", "received_at"],
+                name="controller_event_idx",
+            ),
+            models.Index(
+                fields=["event"],
+                name="batch_event_name_idx",
+            ),
+        ]
 
-#     def start_execution(self):
-#         """
-#         Mark equipment execution as started.
-#         """
+    def __str__(self):
+        return (
+            f"{self.controller_id} - "
+            f"{self.event or self.message_type}"
+        )
 
-#         self.started_at = timezone.now()
 
-#         self.save(
-#             update_fields=[
-#                 "started_at",
-#                 "updated_at",
-#             ]
-#         )
 
-#     def complete_execution(self, state):
-#         """
-#         Mark equipment execution as completed and store
-#         the final ON/OFF state produced by this process.
-#         """
 
-#         self.state = state
-#         self.completed_at = timezone.now()
+class StageBatchEquipmentExecution(models.Model):
 
-#         self.save(
-#             update_fields=[
-#                 "state",
-#                 "completed_at",
-#                 "updated_at",
-#             ]
-#         )
+    STATUS_CHOICES = [
+        ("RUNNING", "Running"),
+        ("COMPLETED", "Completed"),
+        ("FAILED", "Failed"),
+        ("STOPPED", "Stopped"),
+    ]
 
-#     def __str__(self):
-#         return (
-#             f"{self.stage_batch_process_execution.stage_batch.batch_number} - "
-#             f"{self.stage_batch_process_execution.process.name} - "
-#             f"{self.equipment.name} - "
-#             f"{self.state}"
-#         )
+    stage_batch = models.ForeignKey(
+        StageBatch,
+        on_delete=models.CASCADE,
+        related_name="equipment_executions",
+    )
+
+    equipment = models.ForeignKey(
+        "equipment.Equipment",
+        on_delete=models.PROTECT,
+        related_name="stage_batch_executions",
+    )
+
+    operation_name = models.CharField(max_length=150)
+
+    start_event = models.CharField(max_length=150)
+
+    end_event = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="RUNNING",
+    )
+
+    started_at = models.DateTimeField()
+
+    completed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+    )
+
+    duration_seconds = models.PositiveIntegerField(
+        default=0,
+    )
+
+    remarks = models.TextField(
+        blank=True,
+        null=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "stage_batch_equipment_executions"
+        ordering = ["started_at"]
+
+        indexes = [
+            models.Index(
+                fields=["stage_batch", "equipment"],
+                name="batch_equipment_exec_idx",
+            ),
+            models.Index(
+                fields=["status"],
+                name="batch_equip_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.stage_batch.batch_number} - "
+            f"{self.equipment.name} - "
+            f"{self.operation_name}"
+        )
+
+
 
 
 from django.db import models
@@ -984,6 +1061,9 @@ class StageBatchProcessEquipmentExecution(models.Model):
 
     def __str__(self):
         return f"{self.stage_batch_process_execution} - " f"{self.equipment.name}"
+
+
+
 
 
 class StageEquipmentConfig(models.Model):
