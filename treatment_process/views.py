@@ -2481,6 +2481,7 @@ class StageBatchStartView(APIView):
                         payload=mqtt_payload,
                         qos=1,
                     )
+                    
 
                     if subscriber_count == 0:
                         stage_batch.delete()
