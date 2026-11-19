@@ -213,30 +213,58 @@ class AlertTypeDetailView(APIView):
 #                         ALERT
 # ==========================================================
 
-
 class AlertListCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
+    def get(self, request, stage_id=None):
 
         alerts = Alert.objects.select_related(
+            "stage",
             "equipment",
             "sensor",
             "parameter",
             "alert_type",
         ).all()
 
+        if stage_id is not None:
+            alerts = alerts.filter(stage_id=stage_id)
+
+        else:
+            stage_id = request.query_params.get("stage_id")
+
+            if stage_id:
+                if not stage_id.isdigit():
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid stage ID.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                alerts = alerts.filter(stage_id=stage_id)
+
+        count = {
+            "total": alerts.count(),
+            "critical": alerts.filter(severity="CRITICAL").count(),
+            "high": alerts.filter(severity="HIGH").count(),
+            "medium": alerts.filter(severity="MEDIUM").count(),
+            "low": alerts.filter(severity="LOW").count(),
+        }
+
         serializer = AlertSerializer(alerts, many=True)
 
         return Response(
             {
                 "success": True,
-                "message": "Alerts fetched successfully.",
+                "message": "Alert logs fetched successfully.",
+                "count": count,
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
         )
+
 
     def post(self, request):
 
@@ -268,7 +296,6 @@ class AlertListCreateView(APIView):
 # ==========================================================
 #                       ALERT DETAIL
 # ==========================================================
-
 
 class AlertDetailView(APIView):
 
@@ -417,7 +444,6 @@ class AlertDetailView(APIView):
 #                  ALERT NOTIFICATION
 # ==========================================================
 
-
 class AlertNotificationListCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
@@ -467,8 +493,6 @@ class AlertNotificationListCreateView(APIView):
 # ==========================================================
 #              ALERT NOTIFICATION DETAIL
 # ==========================================================
-
-
 class AlertNotificationDetailView(APIView):
 
     permission_classes = [IsAuthenticated]

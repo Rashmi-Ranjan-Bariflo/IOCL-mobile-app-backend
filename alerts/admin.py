@@ -53,6 +53,7 @@ class AlertAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "title",
+        "stage",
         "equipment",
         "sensor",
         "parameter",
@@ -66,6 +67,7 @@ class AlertAdmin(admin.ModelAdmin):
     )
 
     list_filter = (
+        "stage",
         "source",
         "severity",
         "status",
@@ -77,6 +79,8 @@ class AlertAdmin(admin.ModelAdmin):
         "title",
         "message",
         "remarks",
+        "stage__name",
+        "stage__controller_id",
         "equipment__name",
         "sensor__name",
         "parameter__name",
@@ -95,6 +99,7 @@ class AlertAdmin(admin.ModelAdmin):
             "Alert Source",
             {
                 "fields": (
+                    "stage",
                     "equipment",
                     "sensor",
                     "parameter",
