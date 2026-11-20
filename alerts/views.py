@@ -3,6 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from alerts.pagination import AlertPagination
+
 from .models import (
     AlertType,
     Alert,
@@ -213,19 +215,24 @@ class AlertTypeDetailView(APIView):
 #                         ALERT
 # ==========================================================
 
+
 class AlertListCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request, stage_id=None):
 
-        alerts = Alert.objects.select_related(
-            "stage",
-            "equipment",
-            "sensor",
-            "parameter",
-            "alert_type",
-        ).all()
+        alerts = (
+            Alert.objects.select_related(
+                "stage",
+                "equipment",
+                "sensor",
+                "parameter",
+                "alert_type",
+            )
+            .all()
+            .order_by("-triggered_at", "-id")
+        )
 
         if stage_id is not None:
             alerts = alerts.filter(stage_id=stage_id)
@@ -253,18 +260,33 @@ class AlertListCreateView(APIView):
             "low": alerts.filter(severity="LOW").count(),
         }
 
-        serializer = AlertSerializer(alerts, many=True)
+        paginator = AlertPagination()
+
+        paginated_alerts = paginator.paginate_queryset(
+            alerts,
+            request,
+            view=self,
+        )
+
+        serializer = AlertSerializer(paginated_alerts, many=True)
 
         return Response(
             {
                 "success": True,
                 "message": "Alert logs fetched successfully.",
                 "count": count,
+                "pagination": {
+                    "total_records": paginator.page.paginator.count,
+                    "total_pages": paginator.page.paginator.num_pages,
+                    "current_page": paginator.page.number,
+                    "page_size": paginator.get_page_size(request),
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                },
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,
         )
-
 
     def post(self, request):
 
@@ -296,6 +318,7 @@ class AlertListCreateView(APIView):
 # ==========================================================
 #                       ALERT DETAIL
 # ==========================================================
+
 
 class AlertDetailView(APIView):
 
@@ -444,20 +467,42 @@ class AlertDetailView(APIView):
 #                  ALERT NOTIFICATION
 # ==========================================================
 
+
 class AlertNotificationListCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
-        notifications = AlertNotification.objects.select_related("alert").all()
+        notifications = (
+            AlertNotification.objects.select_related("alert").all().order_by("-id")
+        )
 
-        serializer = AlertNotificationSerializer(notifications, many=True)
+        paginator = AlertPagination()
+
+        paginated_notifications = paginator.paginate_queryset(
+            notifications,
+            request,
+            view=self,
+        )
+
+        serializer = AlertNotificationSerializer(
+            paginated_notifications,
+            many=True,
+        )
 
         return Response(
             {
                 "success": True,
                 "message": "Alert notifications fetched successfully.",
+                "pagination": {
+                    "total_records": paginator.page.paginator.count,
+                    "total_pages": paginator.page.paginator.num_pages,
+                    "current_page": paginator.page.number,
+                    "page_size": paginator.get_page_size(request),
+                    "next": paginator.get_next_link(),
+                    "previous": paginator.get_previous_link(),
+                },
                 "data": serializer.data,
             },
             status=status.HTTP_200_OK,

@@ -474,7 +474,7 @@ class MQTTService:
                 batch.batch_number,
             )
 
-    # -----------------------------------------------------------------
+    # ------------------------------------------------------------------
     # POWER Handler  ←  METHOD
     # ------------------------------------------------------------------
 
@@ -590,7 +590,7 @@ class MQTTService:
             return
 
         # ======================================================
-        # ACTUAL POWER ON / OFF
+        #               ACTUAL POWER ON / OFF
         # ======================================================
 
         if event in ("POWER_ON", "ON", "POWERON", "POWER_RESTORED"):
@@ -657,7 +657,136 @@ class MQTTService:
 
 
     # ------------------------------------------------------------------
-    # Main message router
+    # ALERT Handler
+    # ------------------------------------------------------------------
+    
+    def handle_alert_message(self, topic, payload, controller_id):
+
+        try:
+            data = json.loads(payload) if isinstance(payload, str) else payload
+        except (json.JSONDecodeError, TypeError):
+            logger.exception("Invalid ALERT JSON from %s", controller_id)
+            return
+
+        if not isinstance(data, dict):
+            logger.warning("ALERT payload must be a JSON object")
+            return
+
+        if not controller_id:
+            logger.warning("Controller ID missing in ALERT message")
+            return
+
+        event = str(data.get("event", "")).strip().upper()
+
+        supported_events = {
+            "RTC_DISCONNECTED": {
+                "alert_code": "RTC_DISCONNECTED",
+                "title": "RTC Disconnected",
+                "message": "Controller RTC is disconnected.",
+                "default_severity": "CRITICAL",
+            },
+            "RTC_FAILURE": {
+                "alert_code": "RTC_FAILURE",
+                "title": "RTC Failure",
+                "message": "Controller RTC has failed.",
+                "default_severity": "CRITICAL",
+            },
+            "RTC_CYCLE_PAUSED": {
+                "alert_code": "RTC_CYCLE_PAUSED",
+                "title": "Cycle Paused",
+                "message": "Treatment cycle paused due to invalid RTC data.",
+                "default_severity": "CRITICAL",
+            },
+            "RECOVERY_BLOCKED": {
+                "alert_code": "RECOVERY_BLOCKED",
+                "title": "Recovery Blocked",
+                "message": "Cycle recovery blocked due to invalid RTC data.",
+                "default_severity": "HIGH",
+            },
+            "UART_HANDOFF_BLOCKED": {
+                "alert_code": "UART_HANDOFF_BLOCKED",
+                "title": "UART Handoff Blocked",
+                "message": "UART handoff blocked because the previous cycle is unresolved.",
+                "default_severity": "CRITICAL",
+            },
+        }
+
+        if event not in supported_events:
+            logger.info(
+                "No Alert configured for event: %s | Controller: %s",
+                event,
+                controller_id,
+            )
+            return
+
+        config = supported_events[event]
+
+        alert_type = AlertType.objects.filter(
+            code=config["alert_code"],
+            category="SYSTEM",
+            is_active=True,
+        ).first()
+
+        if not alert_type:
+            logger.error(
+                "AlertType with code=%s not found.",
+                config["alert_code"],
+            )
+            return
+
+        stage = TreatmentStage.objects.filter(
+            controller_id__iexact=controller_id
+        ).first()
+
+        device_id = str(data.get("device_id") or controller_id).strip()
+        reason = str(data.get("reason") or "").strip()
+
+        severity = str(
+            data.get("severity") or config["default_severity"]
+        ).strip().upper()
+
+        if severity not in ["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
+            severity = config["default_severity"]
+
+        try:
+            alert = Alert.objects.create(
+                stage=stage,
+                alert_type=alert_type,
+                title=config["title"],
+                message=f"Controller {device_id}: {config['message']}",
+                source="SYSTEM",
+                severity=severity,
+                status="ACTIVE",
+                triggered_at=timezone.now(),
+                remarks=(
+                    f"Controller: {controller_id} | "
+                    f"Device: {device_id} | "
+                    f"Event: {event} | "
+                    f"Reason: {reason} | "
+                    f"RTC Valid: {data.get('rtc_valid')} | "
+                    f"Topic: {topic} | "
+                    f"Payload: {json.dumps(data)}"
+                ),
+            )
+
+            logger.info(
+                "ALERT CREATED | ID: %s | Event: %s | Controller: %s | Severity: %s",
+                alert.id,
+                event,
+                controller_id,
+                severity,
+            )
+
+        except Exception:
+            logger.exception(
+                "FAILED TO CREATE ALERT | Event: %s | Controller: %s",
+                event,
+                controller_id,
+            )
+
+
+    # ------------------------------------------------------------------
+    #                               Main message router
     # ------------------------------------------------------------------
     def handle_device_message(self, message):
 
@@ -696,8 +825,14 @@ class MQTTService:
             )
             logger.info("CONTROLLER STATUS RECEIVED | %s", controller_id)
 
+        
         elif message_type == "alert":
-            logger.info("CONTROLLER ALERT RECEIVED | %s", controller_id)
+            self.handle_alert_message(
+                topic=topic,
+                payload=payload,
+                controller_id=controller_id,
+            )
+            logger.info("CONTROLLER ALERT PROCESSED | %s", controller_id)
 
         elif message_type == "power":
             self.handle_power_message(
@@ -714,7 +849,7 @@ class MQTTService:
             logger.warning("Unsupported MQTT message type: %s", message_type)
 
     # ------------------------------------------------------------------
-    # Properties
+    #                               Properties
     # ------------------------------------------------------------------
     @property
     def is_running(self):
