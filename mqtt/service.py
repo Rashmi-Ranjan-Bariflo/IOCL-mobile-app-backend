@@ -705,8 +705,8 @@ class MQTTService:
             },
             "UART_HANDOFF_BLOCKED": {
                 "alert_code": "UART_HANDOFF_BLOCKED",
-                "title": "UART Handoff Blocked",
-                "message": "UART handoff blocked because the previous cycle is unresolved.",
+                "title": "Next Cycle Start Blocked",
+                "message": "The next treatment cycle cannot start because the previous cycle is still incomplete.",
                 "default_severity": "CRITICAL",
             },
         }

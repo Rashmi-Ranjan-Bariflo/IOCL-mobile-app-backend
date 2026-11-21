@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    AssetDetailsByIdAPIView,
     BlowerOffView,
     BlowerOnView,
     CoagulantDosingMotorOffView,
@@ -52,6 +53,7 @@ urlpatterns = [
     # ===================== Web ===========================
     path("assets/category-cards/",AssetCategoryCardsAPIView.as_view(),name="asset-category-cards"),
     path("assets/detail/",AssetDetailsListAPIView.as_view(),name="asset-details-list"),
+    path("assets/detail/<int:pk>/", AssetDetailsByIdAPIView.as_view(), name="asset-details-by-id",),
     path("assets/overview/",AssetOverviewAPIView.as_view(),name="asset-overview"),
 ]
 

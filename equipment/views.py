@@ -1,29 +1,44 @@
-from asyncio.log import logger
+import logging
+from datetime import datetime, time, timedelta
 
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
-
-from .models import EquipmentType, Equipment, EquipmentManualLog
-
-from .serializers import (
-    EquipmentTypeSerializer,
-    EquipmentSerializer,
-    EquipmentOnOffSerializer,
-    EquipmentOnOffSerializer,
+from django.core.paginator import (
+    EmptyPage,
+    PageNotAnInteger,
+    Paginator,
 )
-from django.db import transaction
+from django.db import models, transaction
+from django.db.models import Q
+from django.forms.models import model_to_dict
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from treatment_process.models import (
-    TreatmentStage,
-    TreatmentProcess,
-    StageEquipmentConfig,
-)
-from rest_framework.permissions import IsAuthenticated
-from mqtt.redis_bus import publish_mqtt_command
+
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from mqtt import topics
+from mqtt.redis_bus import publish_mqtt_command
+
+from treatment_process.models import (
+    StageEquipmentConfig,
+    TreatmentProcess,
+    TreatmentStage,
+)
+
+from .models import (
+    Equipment,
+    EquipmentManualLog,
+    EquipmentType,
+)
+
+from .serializers import (
+    EquipmentOnOffSerializer,
+    EquipmentSerializer,
+    EquipmentTypeSerializer,
+)
+
+logger = logging.getLogger(__name__)
 
 
 # ==========================================================
@@ -537,10 +552,7 @@ class ValveOnView(APIView):
         # GENERATE DYNAMIC MQTT TOPIC
         # ---------------------------------
 
-        topic = topics.VALVE_CONTROL.format(
-            equipment.code
-        )
-
+        topic = topics.VALVE_CONTROL.format(equipment.code)
 
         # ---------------------------------
         # MQTT COMMAND THROUGH REDIS
@@ -572,8 +584,6 @@ class ValveOnView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-
-        
         # now = timezone.now()
         # with transaction.atomic():
         #     log = EquipmentManualLog.objects.create(
@@ -654,14 +664,11 @@ class ValveOnView(APIView):
                         "id": stage.id,
                         "name": stage.name,
                     },
-                    "message": (
-                        "Waiting for device status confirmation."
-                    ),
+                    "message": ("Waiting for device status confirmation."),
                 },
             },
             status=status.HTTP_200_OK,
         )
-
 
 
 # =================================================================
@@ -1133,7 +1140,7 @@ class MotorOffView(APIView):
             Equipment.objects.select_related("equipment_type"),
             id=equipment_id,
         )
-        
+
         if not equipment.equipment_type:
             return Response(
                 {"detail": "Equipment type is not configured."},
@@ -2369,11 +2376,11 @@ class AssetCategoryCardsAPIView(APIView):
             category = categories[category_id]
             category["total_assets"] += 1
 
-            # An equipment item can have multiple stage configurations.
-            # Collect distinct states, but count the equipment only once.
-            states = {
-                config.current_state for config in equipment.stage_configurations.all()
-            }
+            current_states = list(
+                equipment.stage_configurations.values_list("current_state", flat=True)
+            )
+
+            states = set(current_states)
 
             if "ON" in states:
                 display_status = "RUNNING"
@@ -2421,78 +2428,62 @@ class AssetCategoryCardsAPIView(APIView):
         return Response({"categories": result})
 
 
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from django.db import models
-from .models import Equipment
-
-
 class AssetDetailsListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        # Only return equipment owned by the logged-in user.
         queryset = (
-            Equipment.objects.filter(user=request.user)
+            Equipment.objects.filter(
+                user=request.user,
+                equipment_type__is_active=True,
+            )
             .select_related("equipment_type")
-            .prefetch_related("stage_configurations")
+            .prefetch_related(
+                "stage_configurations",
+                "treatment_stages",
+            )
             .order_by("name", "id")
         )
 
-        # Optional search by equipment name or code.
         search = request.query_params.get("search", "").strip()
+ 
         if search:
             queryset = queryset.filter(
-                models.Q(name__icontains=search) | models.Q(code__icontains=search)
-            )
+                models.Q(name__icontains=search)
+                | models.Q(code__icontains=search)
+                | models.Q(equipment_type__name__icontains=search)
+                | models.Q(treatment_stages__name__icontains=search)
+            ).distinct()
 
-        # Optional category filter: equipment_type ID.
         category_id = request.query_params.get("category")
+
         if category_id:
             if not category_id.isdigit():
                 return Response(
                     {"error": "category must be a valid category ID."},
                     status=400,
                 )
-            queryset = queryset.filter(
-                equipment_type_id=int(category_id),
-                equipment_type__is_active=True,
-            )
 
-        # Only include equipment belonging to active categories.
-        queryset = queryset.filter(equipment_type__is_active=True)
+            queryset = queryset.filter(equipment_type_id=int(category_id))
 
         requested_status = request.query_params.get("status", "").strip().upper()
 
-        valid_statuses = {"RUNNING", "STOPPED", "UNCLASSIFIED"}
+        valid_statuses = {"ONLINE", "OFFLINE"}
+
         if requested_status and requested_status not in valid_statuses:
             return Response(
-                {
-                    "error": (
-                        "Invalid status. Use RUNNING, STOPPED, " "or UNCLASSIFIED."
-                    )
-                },
+                {"error": "Invalid status. Use ONLINE or OFFLINE."},
                 status=400,
             )
-
-        # Build one row per equipment record.
 
         rows = []
 
         for equipment in queryset:
-            states = {
-                config.current_state for config in equipment.stage_configurations.all()
-            }
+            configurations = equipment.stage_configurations.all()
 
-            if "ON" in states:
-                display_status = "RUNNING"
-            elif states and states == {"OFF"}:
-                display_status = "STOPPED"
-            else:
-                display_status = "UNCLASSIFIED"
+            current_states = [config.current_state for config in configurations]
+
+            display_status = "ONLINE" if equipment.is_active else "OFFLINE"
 
             if requested_status and display_status != requested_status:
                 continue
@@ -2500,7 +2491,12 @@ class AssetDetailsListAPIView(APIView):
             stages = (
                 equipment.treatment_stages.filter(is_active=True)
                 .order_by("sequence")
-                .values("id", "name", "stage_type", "sequence")
+                .values(
+                    "id",
+                    "name",
+                    "stage_type",
+                    "sequence",
+                )
             )
 
             rows.append(
@@ -2509,14 +2505,15 @@ class AssetDetailsListAPIView(APIView):
                     "name": equipment.name,
                     "type": equipment.equipment_type.name,
                     "stages": list(stages),
+                    "current_state": current_states,
                     "status": display_status,
                 }
             )
 
-        # Pagination.
         try:
             page_number = int(request.query_params.get("page", "1"))
             page_size = int(request.query_params.get("page_size", "10"))
+
         except (ValueError, TypeError):
             return Response(
                 {"error": "page and page_size must be integers."},
@@ -2533,6 +2530,7 @@ class AssetDetailsListAPIView(APIView):
 
         try:
             page_obj = paginator.page(page_number)
+
         except EmptyPage:
             return Response(
                 {"error": "Requested page does not exist."},
@@ -2540,9 +2538,13 @@ class AssetDetailsListAPIView(APIView):
             )
 
         results = []
+
         start_index = page_obj.start_index()
 
-        for index, row in enumerate(page_obj.object_list, start=start_index):
+        for index, row in enumerate(
+            page_obj.object_list,
+            start=start_index,
+        ):
             results.append(
                 {
                     "s_no": index,
@@ -2557,15 +2559,246 @@ class AssetDetailsListAPIView(APIView):
                 "page_size": page_size,
                 "total_pages": paginator.num_pages,
                 "results": results,
-            }
+            },
+            status=200,
         )
 
 
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
+# =========================================================
+#          ASSET DETAILS BY ID
+# =========================================================
 
-from .models import Equipment
+
+class AssetDetailsByIdAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+
+        equipment = (
+            Equipment.objects.filter(
+                id=pk,
+                user=request.user,
+                equipment_type__is_active=True,
+            )
+            .select_related("equipment_type")
+            .prefetch_related(
+                "stage_configurations",
+                "treatment_stages",
+            )
+            .first()
+        )
+
+        if not equipment:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Equipment not found.",
+                    "data": None,
+                },
+                status=404,
+            )
+
+        configurations = list(equipment.stage_configurations.all())
+
+        current_states = [config.current_state for config in configurations]
+
+        if "ON" in current_states:
+            operating_status = "RUNNING"
+
+        elif current_states and all(state == "OFF" for state in current_states):
+            operating_status = "STOPPED"
+
+        else:
+            operating_status = "UNCLASSIFIED"
+
+        stages = equipment.treatment_stages.filter(is_active=True).order_by("sequence")
+
+        stage = stages.first()
+
+        # Runtime Calculation
+        now = timezone.now()
+        today = timezone.localdate()
+        current_timezone = timezone.get_current_timezone()
+
+        today_start = timezone.make_aware(
+            datetime.combine(today, time.min),
+            current_timezone,
+        )
+
+        tomorrow_start = today_start + timedelta(days=1)
+
+        active_stage_ids = {
+            config.stage_id for config in configurations if config.current_state == "ON"
+        }
+
+        manual_logs = (
+            EquipmentManualLog.objects.filter(
+                equipment=equipment,
+                action="ON",
+                started_at__isnull=False,
+                started_at__lt=now,
+            )
+            .only(
+                "stage_id",
+                "started_at",
+                "ended_at",
+            )
+            .order_by("started_at")
+        )
+
+        intervals = []
+
+        for log in manual_logs:
+
+            start_time = log.started_at
+
+            if log.ended_at:
+                end_time = log.ended_at
+
+            elif log.stage_id in active_stage_ids:
+                end_time = now
+
+            else:
+                continue
+
+            if end_time <= start_time:
+                continue
+
+            intervals.append((start_time, end_time))
+
+        # Merge overlapping intervals
+        def merge_intervals(intervals):
+
+            if not intervals:
+                return []
+
+            intervals = sorted(
+                intervals,
+                key=lambda item: item[0],
+            )
+
+            merged = [intervals[0]]
+
+            for start, end in intervals[1:]:
+
+                previous_start, previous_end = merged[-1]
+
+                if start <= previous_end:
+                    merged[-1] = (
+                        previous_start,
+                        max(previous_end, end),
+                    )
+
+                else:
+                    merged.append((start, end))
+
+            return merged
+
+        merged_intervals = merge_intervals(intervals)
+
+        total_seconds = 0
+        today_seconds = 0
+
+        for start_time, end_time in merged_intervals:
+
+            # Total Runtime
+            total_seconds += (end_time - start_time).total_seconds()
+
+            # Today's Runtime
+            overlap_start = max(
+                start_time,
+                today_start,
+            )
+
+            overlap_end = min(
+                end_time,
+                tomorrow_start,
+                now,
+            )
+
+            if overlap_end > overlap_start:
+                today_seconds += (overlap_end - overlap_start).total_seconds()
+
+        # Runtime Formatter
+        def format_runtime(seconds):
+
+            total_minutes = int(seconds // 60)
+
+            hours, minutes = divmod(
+                total_minutes,
+                60,
+            )
+
+            return f"{hours:02d}h {minutes:02d}m"
+
+        runtime_today = format_runtime(today_seconds)
+        total_runtime = format_runtime(total_seconds)
+
+        # Asset Image
+        asset_image = None
+
+        image_field = getattr(
+            equipment,
+            "image",
+            None,
+        )
+
+        if image_field and image_field.name:
+            asset_image = request.build_absolute_uri(image_field.url)
+
+        # Last Updated
+        last_updated = getattr(
+            equipment,
+            "updated_at",
+            None,
+        )
+
+        # Response Data
+        data = {
+            "id": equipment.id,
+            "asset_id": equipment.code,
+            "asset_name": equipment.name,
+            "asset_image": asset_image,
+            "asset_type": equipment.equipment_type.name,
+            "category": equipment.equipment_type.name,
+            "stage_name": stage.name if stage else None,
+            "stage_type": stage.stage_type if stage else None,
+            "location": getattr(
+                equipment,
+                "location",
+                None,
+            ),
+            "installation_date": getattr(
+                equipment,
+                "installation_date",
+                None,
+            ),
+            "manufacturer": getattr(
+                equipment,
+                "manufacturer",
+                None,
+            ),
+            "model": getattr(
+                equipment,
+                "model_number",
+                None,
+            ),
+            "current_state": current_states,
+            "status": operating_status,
+            "is_active": equipment.is_active,
+            "last_updated": last_updated,
+            "runtime_today": runtime_today,
+            "total_runtime": total_runtime,
+        }
+
+        return Response(
+            {
+                "success": True,
+                "message": "Asset details retrieved successfully.",
+                "data": data,
+            },
+            status=200,
+        )
 
 
 class AssetOverviewAPIView(APIView):
